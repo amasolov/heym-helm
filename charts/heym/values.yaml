@@ -27,13 +27,16 @@ cni: ""
 
 image:
   repository: ghcr.io/heymrun/heym
-  # Defaults to the chart's appVersion. "0.0.144@sha256:..." also works, the
-  # form Renovate keeps up to date.
-  tag: ""
+  # Follow upstream's published image by default. Set an exact release tag
+  # (for example "0.0.145") or "0.0.145@sha256:..." to pin it.
+  # An empty tag retains the chart appVersion fallback.
+  tag: latest
   # Pin it: sha256:... Sandbox pods run the exact image the backend runs, read
   # from the backend's own pod spec, so a digest pins both.
   digest: ""
-  pullPolicy: IfNotPresent
+  # Empty selects Always for floating latest, IfNotPresent for version/digest
+  # pins. Explicit Always, IfNotPresent and Never remain supported.
+  pullPolicy: ""
 
 imagePullSecrets: []
 

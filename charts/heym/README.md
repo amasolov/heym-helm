@@ -30,6 +30,27 @@ helm install heym oci://ghcr.io/amasolov/charts/heym -n heym --create-namespace 
   -f values.private.yaml --set url=https://heym.example.com
 ```
 
+### Image selection
+
+New installs use `ghcr.io/heymrun/heym:latest` with `imagePullPolicy: Always`.
+The registry resolves that tag when a pod starts. Running pods keep their image;
+publishing a new Heym image does not itself trigger a Helm or Argo rollout.
+
+Pin an exact release with:
+
+```yaml
+image:
+  tag: "0.0.145"
+```
+
+For an immutable pin, also set `image.digest: sha256:<64-hex-digest>`, or use
+`image.tag: "0.0.145@sha256:<64-hex-digest>"`. Version and digest pins default to
+`IfNotPresent`. Set `image.pullPolicy` to override either default. An empty
+`image.tag` uses this chart's `appVersion` instead of the floating tag.
+Use a digest when main, workers and sandbox pods must run identical image
+contents throughout an upgrade. Existing installations with explicit image pins
+keep those pins when upgrading the chart.
+
 The chart does not deploy PostgreSQL. It generates `SECRET_KEY` and a valid
 32-byte Fernet `ENCRYPTION_KEY` in a create-once hook Job when needed. Keys are
 created in Kubernetes, never randomized during Helm rendering. Retries, Helm
@@ -344,7 +365,7 @@ auto-generated-key OpenShift installation still needs a targeted live test.
 
 ## Publishing (maintainers)
 
-1. Bump `version` (and `appVersion` for a new Heym) in `Chart.yaml`.
+1. Bump `version` and record the tested Heym release in `appVersion` in `Chart.yaml`. The default image follows `latest`; `appVersion` is also the empty-tag fallback.
 2. Tag `chart-<version>`. CI pushes `oci://ghcr.io/amasolov/charts/heym`.
 3. Artifact Hub reads the repository metadata from the OCI artifact
    `ghcr.io/amasolov/charts/heym:artifacthub.io`. The `Artifact Hub metadata`

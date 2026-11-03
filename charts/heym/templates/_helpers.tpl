@@ -273,6 +273,18 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 {{- end -}}
 
+{{/* Floating latest must be resolved on every pod start. Exact tags/digests
+can use the node cache; an explicit pullPolicy always takes precedence. */}}
+{{- define "heym.imagePullPolicy" -}}
+{{- if .Values.image.pullPolicy -}}
+{{- .Values.image.pullPolicy -}}
+{{- else if and (eq (default .Chart.AppVersion .Values.image.tag) "latest") (not .Values.image.digest) -}}
+Always
+{{- else -}}
+IfNotPresent
+{{- end -}}
+{{- end -}}
+
 {{- define "heym.validPlatform" -}}
 {{- if not (has .Values.platform (list "generic" "openshift" "eks" "aks" "gke")) -}}
 {{- fail (printf "platform must be one of generic, openshift, eks, aks, gke; got %q" .Values.platform) -}}

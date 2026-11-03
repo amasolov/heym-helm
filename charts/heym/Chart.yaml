@@ -5,9 +5,9 @@ description: >-
   (Python tools, skills, Code node, MCP stdio, Playwright, Codex, OpenCode) as
   its own restricted pod, with no Docker socket.
 type: application
-version: 0.3.2
+version: 0.4.0
 # Heym's release tag. The image is ghcr.io/heymrun/heym:<appVersion>.
-appVersion: "0.0.144"
+appVersion: "0.0.145"
 # The Kubernetes sandbox backend needs 1.30+ (heymrun/heym#848).
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/amasolov/heym-helm
@@ -37,8 +37,10 @@ annotations:
       url: https://github.com/heymrun/heym/pull/848
   artifacthub.io/images: |
     - name: heym
-      image: ghcr.io/heymrun/heym:0.0.144
+      image: ghcr.io/heymrun/heym:latest
   artifacthub.io/changes: |
+    - kind: changed
+      description: Follow upstream latest by default with automatic pull policy and optional exact image pins
     - kind: fixed
       description: Explicit worker claim type metadata prevents Argo CD sync drift
     - kind: added
