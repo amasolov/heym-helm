@@ -46,8 +46,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 
 {{- define "heym.validPlatform" -}}
-{{- if not (has .Values.platform (list "generic" "talos" "openshift" "eks" "aks" "gke")) -}}
-{{- fail (printf "platform must be one of generic, talos, openshift, eks, aks, gke; got %q" .Values.platform) -}}
+{{- if not (has .Values.platform (list "generic" "openshift" "eks" "aks" "gke")) -}}
+{{- fail (printf "platform must be one of generic, openshift, eks, aks, gke; got %q" .Values.platform) -}}
 {{- end -}}
 {{- end -}}
 
@@ -66,7 +66,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- define "heym.ciliumApiServerPolicy" -}}
 {{- if kindIs "bool" .Values.ciliumApiServerPolicy -}}
 {{- if .Values.ciliumApiServerPolicy }}true{{ end -}}
-{{- else if and (eq .Values.platform "talos") .Values.networkPolicy.enabled }}true{{ end -}}
+{{- else if and (eq .Values.cni "cilium") .Values.networkPolicy.enabled }}true{{ end -}}
 {{- end -}}
 
 {{- define "heym.sandboxAllowAllEgress" -}}

@@ -1,12 +1,19 @@
 # Which platform this runs on. It only changes defaults that differ between
 # platforms; every one of them can still be set explicitly below.
-#   generic    any conformant cluster with a NetworkPolicy-enforcing CNI
-#   talos      Talos Linux with Cilium (kube-proxy replacement)
+#   generic    any conformant cluster, Talos included
 #   openshift  OpenShift 4 (restricted-v2 SCC assigns the uid; OVN-Kubernetes)
 #   eks        Amazon EKS (VPC CNI network policy enabled, or Cilium/Calico)
 #   aks        Azure AKS with a network policy engine
 #   gke        Google GKE with Dataplane V2
 platform: generic
+
+# The CNI, where it changes what the chart renders. Separate from platform:
+# Cilium runs on many platforms, and most platforms offer several CNIs.
+#   ""      nothing CNI-specific
+#   cilium  Cilium with kube-proxy replacement: see ciliumApiServerPolicy
+# Whatever the CNI, it must enforce NetworkPolicy. Flannel (the default on
+# Talos and k3s) does not, and Heym then refuses offline sandboxes.
+cni: ""
 
 image:
   repository: ghcr.io/heymrun/heym
@@ -149,7 +156,7 @@ networkPolicy:
 # Cilium with kube-proxy replacement rewrites the API server Service to the
 # node's :6443 before policy is evaluated, and ipBlock rules cannot match it.
 # When the backend has a NetworkPolicy, it needs this to start sandboxes.
-# Empty follows the platform (on for talos when networkPolicy.enabled).
+# Empty follows cni (on for cilium when networkPolicy.enabled).
 ciliumApiServerPolicy: null
 
 serviceAccount:

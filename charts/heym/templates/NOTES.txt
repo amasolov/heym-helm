@@ -15,6 +15,6 @@ Sandboxes run as pods in {{ .Release.Namespace }}, labelled app.kubernetes.io/ma
 {{- end }}
 {{- if and .Values.networkPolicy.enabled (not (include "heym.ciliumApiServerPolicy" .)) }}
   - The backend has a NetworkPolicy: make sure it can reach the API server.
-    On Cilium with kube-proxy replacement set ciliumApiServerPolicy=true.
+    On Cilium with kube-proxy replacement set cni=cilium.
 {{- end }}
 {{- end }}

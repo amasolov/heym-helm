@@ -4,7 +4,12 @@
   "properties": {
     "platform": {
       "type": "string",
-      "enum": ["generic", "talos", "openshift", "eks", "aks", "gke"]
+      "enum": ["generic", "openshift", "eks", "aks", "gke"]
+    },
+    "cni": {
+      "type": "string",
+      "description": "Only cilium changes anything today; leave empty for other CNIs.",
+      "enum": ["", "cilium"]
     },
     "image": {
       "type": "object",

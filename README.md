@@ -39,27 +39,45 @@ generated key would change on every sync.
   and refuses offline sandboxes if the canary can connect anywhere.
 - **PostgreSQL with `pgvector`.** If Heym's database role can't create
   extensions, install `vector` as a superuser first.
-- **A kubelet `podPidsLimit`.** Pods have no PID limit of their own. Talos
-  ships with none (`-1`).
+- **A kubelet `podPidsLimit`.** Pods have no PID limit of their own.
 
 ## Platforms
 
-`platform` only changes defaults; every one of them can also be set
-explicitly.
+`platform` and `cni` only change defaults; every one of them can also be
+set explicitly. They're separate because Cilium runs on many platforms, and
+most platforms offer several CNIs.
 
 | `platform`  | What it changes                                                                                                                       |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `generic`   | Nothing: uid 1000, `kube-dns` in `kube-system`.                                                                                       |
-| `talos`     | With `networkPolicy.enabled`, adds a CiliumNetworkPolicy so the backend can reach the API server under kube-proxy replacement.      |
+| `generic`   | Nothing: uid 1000, `kube-dns` in `kube-system`. Use it for Talos, k3s, kubeadm and so on.                                         |
 | `openshift` | Leaves the uid, gid and fsGroup to `restricted-v2`. Allows DNS to `openshift-dns` on 53 and **5353**, the port the DNS pods actually listen on. Creates a Route. |
 | `eks`       | Nothing extra. The VPC CNI enforces NetworkPolicy only with its network-policy feature on; IMDS and Pod Identity are link-local, so already blocked. |
 | `aks`       | Also blocks Azure WireServer `168.63.129.16`, a public address the private-range rules miss.                                          |
 | `gke`       | Nothing extra. Dataplane V2 enforces policy. For GKE Sandbox, set `sandbox.podOverrides.runtimeClassName: gvisor`.                  |
 
-On AKS, Kata isolation is `runtimeClassName: kata-vm-isolation`. On OpenShift
-it is `kata`. On Talos, add the `siderolabs/gvisor` system extension.
+| `cni`    | What it changes                                                                                                                        |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `""`     | Nothing CNI-specific.                                                                                                                  |
+| `cilium` | With `networkPolicy.enabled`, adds a CiliumNetworkPolicy so the backend can reach the API server. Kube-proxy replacement rewrites that address to the API server's own reserved identity, which an `ipBlock` rule can't match. |
 
-**Status:** tested on Talos 1.14 with Cilium, using upstream's smoke test;
+On AKS, Kata isolation is `runtimeClassName: kata-vm-isolation`. On OpenShift
+it is `kata`.
+
+### Talos
+
+Talos needs no platform preset, but its defaults matter:
+
+- **Default CNI.** Talos ships Flannel, which doesn't enforce NetworkPolicy,
+  so Heym refuses offline sandboxes there (Python tools, the Code node
+  without network). Install Cilium or another enforcing CNI. With Cilium, set
+  `cni: cilium`.
+- **No PID limit.** The kubelet has no `podPidsLimit` (`-1`). Set one in the
+  machine config (`machine.kubelet.extraConfig.podPidsLimit`).
+- **gVisor.** For gVisor sandboxes, add the `siderolabs/gvisor` system
+  extension and a `RuntimeClass`, then set
+  `sandbox.podOverrides.runtimeClassName`.
+
+**Status:** Heym's sandbox backend was tested on Talos 1.14 with Cilium, using upstream's smoke test;
 11/12 checks pass, the twelfth is
 [a known upstream bug](https://github.com/heymrun/heym/issues/832). Tested on
 OpenShift 4.22 with equivalent manifests. Rendered but untested on EKS, AKS
@@ -92,6 +110,7 @@ The main ones; see [values.yaml](charts/heym/values.yaml) for all of them.
 | Key                       | Default            | Purpose                                                                     |
 | ------------------------- | ------------------ | --------------------------------------------------------------------------- |
 | `platform`                | `generic`          | see above                                                                   |
+| `cni`                     | `""`               | `cilium` for Cilium with kube-proxy replacement                             |
 | `url`                     | `http://localhost:4017` | public URL (`FRONTEND_URL`, `CORS_ORIGINS`)                            |
 | `secrets.existingSecret`  | `""`               | Secret with `SECRET_KEY`, `ENCRYPTION_KEY`, `DATABASE_URL`                  |
 | `image.digest`            | `""`               | pins the backend and, through it, every sandbox                             |

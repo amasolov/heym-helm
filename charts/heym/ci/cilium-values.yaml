@@ -1,4 +1,4 @@
-platform: talos
+cni: cilium
 image:
   digest: sha256:6a34d24039f32df4c8f61d6f39df2fe2bc66534c5a420c5d16d197c3e60d878a
 secrets:
