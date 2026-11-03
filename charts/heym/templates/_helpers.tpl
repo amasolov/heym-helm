@@ -154,7 +154,6 @@ cluster.env on top, and get their instance ID from the pod name. */}}
 {{- if $root.Values.sandbox.podOverrides -}}
 {{- $defaults = append $defaults (dict "name" "HEYM_SANDBOX_K8S_POD_OVERRIDES" "value" (toJson $root.Values.sandbox.podOverrides)) -}}
 {{- end -}}
-{{- $defaults = append $defaults (dict "name" "HEYM_PYTHON_TOOL_RUNNER_PATH" "value" "/app/backend/app/services/python_tool_runner.py") -}}
 {{- end -}}
 {{- if $root.Values.cluster.enabled -}}
 {{- $defaults = append $defaults (dict "name" "HEYM_CLUSTER_ENABLED" "value" "true") -}}
