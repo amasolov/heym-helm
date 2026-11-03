@@ -11,6 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: azure/setup-helm@v4
+      - name: Test rendering and durable key lifecycle
+        run: |
+          python3 -m pip install 'PyYAML>=6,<7'
+          python3 -m unittest discover -s tests
       - name: Lint and render every platform preset
         run: |
           set -euo pipefail

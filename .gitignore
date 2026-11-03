@@ -1,0 +1,5 @@
+__pycache__/
+.venv/
+*.tgz
+secrets.yaml
+values.private.yaml

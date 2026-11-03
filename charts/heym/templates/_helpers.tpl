@@ -11,12 +11,17 @@
 {{/* Selector labels. Sandbox pods never carry app.kubernetes.io/name, so the
 backend's selectors and NetworkPolicy cannot match them. */}}
 {{- define "heym.selectorLabels" -}}
+{{- if .Values.selectorLabels -}}
+{{- toYaml .Values.selectorLabels -}}
+{{- else -}}
 app.kubernetes.io/name: {{ default .Chart.Name .Values.nameOverride }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
+{{- end -}}
 
 {{- define "heym.labels" -}}
-{{ include "heym.selectorLabels" . }}
+app.kubernetes.io/name: {{ default .Chart.Name .Values.nameOverride }}
+app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/part-of: heym
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
@@ -32,6 +37,35 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 
 {{- define "heym.secretName" -}}
 {{- default (printf "%s-secrets" (include "heym.fullname" .)) .Values.secrets.existingSecret -}}
+{{- end -}}
+
+{{- define "heym.generateKeys" -}}
+{{- $s := .Values.secrets -}}
+{{- $signing := or $s.secretKey (hasKey $s.keyRefs "SECRET_KEY") -}}
+{{- $encryption := or $s.encryptionKey (hasKey $s.keyRefs "ENCRYPTION_KEY") -}}
+{{- if and $s.generate (not $s.existingSecret) (not (and $signing $encryption)) }}true{{ end -}}
+{{- end -}}
+
+{{- define "heym.inlineSecret" -}}
+{{- if and (not .Values.secrets.existingSecret) (or .Values.secrets.secretKey .Values.secrets.encryptionKey .Values.secrets.databaseUrl) }}true{{ end -}}
+{{- end -}}
+
+{{- define "heym.validateSecrets" -}}
+{{- $s := .Values.secrets -}}
+{{- range $name, $ref := $s.keyRefs -}}
+{{- if hasKey $.Values.env $name -}}
+{{- fail (printf "Define %s in either secrets.keyRefs or env, not both" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- if and $s.existingSecret (or $s.secretKey $s.encryptionKey $s.databaseUrl) -}}
+{{- fail "Do not combine secrets.existingSecret with inline secret values; use existingSecrets for split sources" -}}
+{{- end -}}
+{{- if not (or $s.existingSecret $s.existingSecrets .Values.envFrom (and (or $s.secretKey (hasKey $s.keyRefs "SECRET_KEY")) (or $s.encryptionKey (hasKey $s.keyRefs "ENCRYPTION_KEY"))) (include "heym.generateKeys" .)) -}}
+{{- fail "Provide pre-created Secrets, inline application keys, or enable secrets.generate" -}}
+{{- end -}}
+{{- if not (or $s.databaseUrl $s.existingSecret $s.existingSecrets .Values.envFrom (hasKey $s.keyRefs "DATABASE_URL") (hasKey .Values.env "POSTGRES_HOST") (hasKey .Values.env "DATABASE_URL")) -}}
+{{- fail "Configure the external database via secrets.databaseUrl, existing Secrets, envFrom or env.POSTGRES_HOST" -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "heym.claimName" -}}

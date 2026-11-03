@@ -1,0 +1,4 @@
+platform: openshift
+secrets:
+  # Rendering fixture only. Supply your real database URL outside Git.
+  databaseUrl: postgresql+asyncpg://example.invalid/heym

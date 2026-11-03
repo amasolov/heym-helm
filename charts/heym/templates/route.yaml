@@ -17,7 +17,7 @@ spec:
     kind: Service
     name: {{ include "heym.fullname" . }}
   port:
-    targetPort: http
+    targetPort: {{ .Values.service.portName }}
   tls:
     {{- toYaml .Values.route.tls | nindent 4 }}
 {{- end }}

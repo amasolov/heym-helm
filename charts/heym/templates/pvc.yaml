@@ -8,6 +8,7 @@ metadata:
   annotations:
     # Drive files, plugins and workspaces outlive the release.
     helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
     {{- with .Values.persistence.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
