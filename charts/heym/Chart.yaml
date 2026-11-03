@@ -39,6 +39,8 @@ annotations:
     - name: heym
       image: ghcr.io/heymrun/heym:latest
   artifacthub.io/changes: |
+    - kind: removed
+      description: HEYM_PYTHON_TOOL_RUNNER_PATH default; Heym 0.0.145 ships the runner with each tool call and ignores it (set it under env when pinning 0.0.144)
     - kind: changed
       description: Follow upstream latest by default with automatic pull policy and optional exact image pins
     - kind: fixed
