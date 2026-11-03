@@ -1,5 +1,6 @@
 {{- include "heym.validPlatform" . -}}
 {{- include "heym.validateSecrets" . -}}
+{{- include "heym.validateConfiguration" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,10 +23,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "heym.selectorLabels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+        {{- include "heym.podLabels" . | nindent 8 }}
       annotations:
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
@@ -73,57 +71,7 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           env:
-            - name: FRONTEND_URL
-              value: {{ .Values.url | quote }}
-            - name: CORS_ORIGINS
-              value: {{ .Values.url | quote }}
-            - name: BACKEND_WORKERS
-              value: {{ .Values.workers | quote }}
-            # The single-image default rewrites a localhost database host to
-            # the container's address, which is meaningless on Kubernetes.
-            - name: AUTO_REWRITE_LOCAL_DATABASE_HOST
-              value: "false"
-            # Absolute paths: relative ones resolve against /app/backend in
-            # the release image, not the volume.
-            - name: FILE_STORAGE_DIR
-              value: /app/data/files
-            - name: HEYM_PLUGINS_DIR
-              value: /app/data/plugins
-            # Read-only root filesystem. The entrypoint's `uv run` wants a
-            # cache under /app/.cache and would re-sync the venv into
-            # /app/backend; the image's venv is already complete.
-            - name: HOME
-              value: /tmp
-            - name: UV_CACHE_DIR
-              value: /tmp/uv-cache
-            - name: UV_NO_SYNC
-              value: "1"
-            {{- if .Values.sandbox.enabled }}
-            # Forced, not "auto": a missing token then fails closed with a
-            # clear error instead of looking for a Docker daemon.
-            - name: HEYM_SANDBOX_BACKEND
-              value: kubernetes
-            {{- with .Values.sandbox.podOverrides }}
-            - name: HEYM_SANDBOX_K8S_POD_OVERRIDES
-              value: {{ toJson . | quote }}
-            {{- end }}
-            # The default is the Compose layout (/app/app/...); the release
-            # image keeps the backend under /app/backend.
-            - name: HEYM_PYTHON_TOOL_RUNNER_PATH
-              value: /app/backend/app/services/python_tool_runner.py
-            {{- end }}
-            {{- range $name, $value := .Values.env }}
-            - name: {{ $name }}
-              value: {{ $value | quote }}
-            {{- end }}
-            {{- range $name, $ref := .Values.secrets.keyRefs }}
-            - name: {{ $name }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $ref.name | quote }}
-                  key: {{ $ref.key | quote }}
-                  optional: false
-            {{- end }}
+            {{- include "heym.environment" . | nindent 12 }}
           {{- if or (include "heym.generateKeys" .) .Values.secrets.existingSecret (include "heym.inlineSecret" .) .Values.secrets.existingSecrets .Values.envFrom }}
           envFrom:
             {{- if include "heym.generateKeys" . }}
