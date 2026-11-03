@@ -389,6 +389,11 @@ class ClusterTests(unittest.TestCase):
             m["mountPath"]: m["name"]
             for m in sts["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
         }
+        for claim in sts["spec"]["volumeClaimTemplates"]:
+            # Kubernetes adds these fields; Argo preserves them in its normalized
+            # live state, so omitting them causes perpetual OutOfSync.
+            self.assertEqual(claim["apiVersion"], "v1")
+            self.assertEqual(claim["kind"], "PersistentVolumeClaim")
         claims = [t["metadata"]["name"] for t in sts["spec"]["volumeClaimTemplates"]]
         self.assertIn(mounts["/app/data"], claims)
         volumes = {v["name"] for v in sts["spec"]["template"]["spec"]["volumes"]}

@@ -166,7 +166,9 @@ spec:
               {{- include "heym.workerSelectorLabels" . | nindent 14 }}
       {{- end }}
   volumeClaimTemplates:
-    - metadata:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
         name: data
       spec:
         accessModes:
