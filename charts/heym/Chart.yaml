@@ -39,6 +39,10 @@ annotations:
     - name: heym
       image: ghcr.io/heymrun/heym:0.0.144
   artifacthub.io/changes: |
+    - kind: fixed
+      description: Reject conflicting pod labels and render environment overrides once
+    - kind: added
+      description: Disposable Kind install/upgrade and encrypted-data retention CI
     - kind: added
       description: Durable first-install keys and split pre-created Secret references
     - kind: added

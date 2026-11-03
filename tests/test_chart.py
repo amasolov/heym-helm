@@ -19,6 +19,19 @@ keygen = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(keygen)
 
 
+class UniqueKeyLoader(yaml.SafeLoader):
+    """Reject duplicate YAML mapping keys instead of silently keeping the last."""
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key, _value in node.value:
+            name = self.construct_object(key, deep=deep)
+            if name in seen:
+                raise AssertionError(f"Duplicate YAML mapping key: {name}")
+            seen.add(name)
+        return super().construct_mapping(node, deep=deep)
+
+
 def render(values, success=True):
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as file:
         json.dump(values, file)
@@ -43,7 +56,7 @@ def render(values, success=True):
         return result.stderr
     if result.returncode:
         raise AssertionError(result.stderr)
-    return [d for d in yaml.safe_load_all(result.stdout) if d]
+    return [d for d in yaml.load_all(result.stdout, Loader=UniqueKeyLoader) if d]
 
 
 def deployment(docs):
@@ -51,6 +64,94 @@ def deployment(docs):
 
 
 class ChartTests(unittest.TestCase):
+    def test_selector_overrides_are_rejected_but_identical_labels_are_deduplicated(
+        self,
+    ):
+        for selector, labels in (
+            ({}, {"app.kubernetes.io/name": "different"}),
+            ({"app": "heym"}, {"app": "different"}),
+        ):
+            error = render(
+                dict(
+                    secrets=dict(existingSecret="test"),
+                    selectorLabels=selector,
+                    podLabels=labels,
+                ),
+                success=False,
+            )
+            self.assertIn("must not override Deployment selector label", error)
+        docs = render(
+            dict(
+                secrets=dict(existingSecret="test"),
+                selectorLabels={"app": "heym"},
+                podLabels={"app": "heym", "tier": "web"},
+            )
+        )
+        pod_labels = deployment(docs)["spec"]["template"]["metadata"]["labels"]
+        self.assertEqual(pod_labels, {"app": "heym", "tier": "web"})
+
+    def test_backend_cannot_match_sandbox_network_policies(self):
+        for labels in (
+            {"app.kubernetes.io/managed-by": "heym"},
+            {"heym.run/network": "none"},
+        ):
+            error = render(
+                dict(secrets=dict(existingSecret="test"), podLabels=labels),
+                success=False,
+            )
+            self.assertIn("Backend labels must not select sandbox", error)
+
+    def test_env_overrides_render_once_and_keep_default_before_custom_order(self):
+        docs = render(
+            dict(
+                secrets=dict(existingSecret="test"),
+                env={
+                    "FRONTEND_URL": "https://custom.example.invalid",
+                    "BACKEND_WORKERS": 3,
+                    "HEYM_SANDBOX_BACKEND": "kubernetes",
+                    "MY_URL": "$(FRONTEND_URL)",
+                },
+            )
+        )
+        env = deployment(docs)["spec"]["template"]["spec"]["containers"][0]["env"]
+        names = [item["name"] for item in env]
+        self.assertEqual(len(names), len(set(names)))
+        values = {item["name"]: item.get("value") for item in env}
+        self.assertEqual(values["FRONTEND_URL"], "https://custom.example.invalid")
+        self.assertEqual(values["BACKEND_WORKERS"], "3")
+        self.assertLess(names.index("FRONTEND_URL"), names.index("MY_URL"))
+
+    def test_sandbox_backend_and_typed_overrides_cannot_be_bypassed(self):
+        for env in (
+            {"HEYM_SANDBOX_BACKEND": "subprocess"},
+            {"HEYM_SANDBOX_K8S_POD_OVERRIDES": "{}"},
+        ):
+            render(dict(secrets=dict(existingSecret="test"), env=env), success=False)
+        docs = render(
+            dict(
+                secrets=dict(existingSecret="test"),
+                sandbox=dict(enabled=False),
+                env={"HEYM_SANDBOX_BACKEND": "docker"},
+            )
+        )
+        env = deployment(docs)["spec"]["template"]["spec"]["containers"][0]["env"]
+        self.assertEqual(
+            [e["value"] for e in env if e["name"] == "HEYM_SANDBOX_BACKEND"], ["docker"]
+        )
+
+    def test_key_reference_and_env_value_for_the_same_key_are_rejected(self):
+        error = render(
+            dict(
+                secrets=dict(
+                    existingSecret="test",
+                    keyRefs={"ENCRYPTION_KEY": dict(name="external", key="key")},
+                ),
+                env={"ENCRYPTION_KEY": "test-only-placeholder"},
+            ),
+            success=False,
+        )
+        self.assertIn("either secrets.keyRefs or env, not both", error)
+
     def test_per_key_references_are_required_and_do_not_generate_replacements(self):
         refs = {
             key: dict(name="external", key=key.lower())

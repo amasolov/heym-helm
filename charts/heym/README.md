@@ -224,6 +224,63 @@ The main ones; see [values.yaml](values.yaml) for all of them.
 | `networkPolicy.enabled`   | `false`            | a policy for the backend too; add site-specific `extraEgress`               |
 | `ingress` / `httpRoute` / `route` | off (Route on for OpenShift) | exposure                                              |
 
+## Testing and configuration guardrails
+
+`podLabels` may add labels or repeat a selector label with the same value. A
+conflicting value fails rendering instead of producing a Deployment whose pod
+does not match its selector. Labels that select sandbox NetworkPolicies
+(`app.kubernetes.io/managed-by=heym` or `heym.run/network`) are rejected on the
+backend. Native Helm's metadata label `app.kubernetes.io/managed-by=Helm` is fine.
+
+`env` replaces defaults in place; each variable name appears once. Default entries
+remain before extra variables so Kubernetes `$(VAR)` expansion keeps working.
+When `sandbox.enabled=true`, `HEYM_SANDBOX_BACKEND` must remain `kubernetes`,
+and pod scheduling overrides must use the schema-checked `sandbox.podOverrides`
+map. An `env` entry and `secrets.keyRefs` for the same name are rejected. These
+checks do not inspect Secret/ConfigMap contents; `envFrom` keeps its documented
+source precedence. Disable `sandbox.enabled` explicitly for another runtime.
+
+The Lint workflow runs semantic render tests, rejects duplicate YAML mapping
+keys, and validates every platform/secret preset. The separate Lifecycle workflow
+creates a disposable Kind cluster and exercises the actual candidate chart:
+
+1. Install with a disposable pgvector database and generated application keys.
+2. Store an encrypted database probe and a file on the chart's PVC.
+3. Upgrade with a changed pod annotation, checking that a new pod uses the same
+   keys and PVC and can still decrypt/read both probes.
+4. Uninstall/reinstall the same release, checking retained key/PVC identities and
+   successful application health and decryption.
+5. Switch to pre-created split Secrets containing the same keys, then upgrade
+   again and check that neither external nor unused generated keys changed.
+
+The database role is unprivileged, with pgvector preinstalled administratively.
+Passwords and key values stay in memory or test-cluster Secrets, never committed
+values, command arguments or normal output. Failure logs are redacted using the
+test Secrets. The default runner mode prints a plan and runs no commands:
+
+```bash
+python3 scripts/test-lifecycle.py --context kind-heym-chart-ci
+# After approving this exact disposable target and its create/delete operations:
+python3 scripts/test-lifecycle.py --context kind-heym-chart-ci \
+  --namespace heym-chart-e2e --execute
+```
+
+Execution requires an explicit `kind-*` context with a loopback API server and a
+new `heym-chart-e2e` namespace (or a suffixed name). It refuses an existing
+namespace and only deletes one whose creation/ownership annotation matches this
+process. CI also removes its entire disposable Kind cluster on completion.
+The workflow uses Kubernetes 1.35 with a pinned node digest and has no production
+cluster credentials or model-provider keys. Publishing a PR starts this CI test;
+it does not deploy to the OpenShift lab or publish a chart release.
+
+This is an install/upgrade test of the same candidate chart, not a cross-version
+upgrade guarantee. It does not test Argo reconciliation, OpenShift SCC assignment,
+NetworkPolicy enforcement, sandbox execution or LLM behavior. Sandbox support is
+disabled because default Kind networking is not an enforcement test environment.
+Keep the separate OpenShift/sandbox smoke checks before claiming that coverage.
+Existing external-secret OpenShift adoption was verified in the lab; fresh
+auto-generated-key OpenShift installation still needs a targeted live test.
+
 ## Publishing (maintainers)
 
 1. Bump `version` (and `appVersion` for a new Heym) in `Chart.yaml`.

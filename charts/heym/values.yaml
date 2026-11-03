@@ -67,8 +67,10 @@ secrets:
   # Heym's role cannot create extensions.
   databaseUrl: ""
 
-# Extra environment for the Heym container, as a map. See Heym's
-# ENVIRONMENT-VARIABLES.md. Examples: HEYM_ADMIN_EMAILS, TZ, ALLOW_REGISTER.
+# Extra environment for the Heym container, as a map. Defaults are replaced in
+# place, so every name renders once. Kubernetes sandbox mode cannot be bypassed
+# while sandbox.enabled=true; use sandbox.podOverrides for scheduling settings.
+# See Heym's ENVIRONMENT-VARIABLES.md. Examples: HEYM_ADMIN_EMAILS, TZ, ALLOW_REGISTER.
 env: {}
 # Extra environment from Secrets or ConfigMaps.
 envFrom: []
@@ -108,6 +110,8 @@ podSecurityContext:
 # Annotations on the Deployment itself (e.g. reloader.stakater.com/auto).
 annotations: {}
 podAnnotations: {}
+# Additional labels; selector labels may be repeated only with identical values.
+# Sandbox labels (managed-by=heym and heym.run/network) are reserved.
 podLabels: {}
 nodeSelector: {}
 tolerations: []

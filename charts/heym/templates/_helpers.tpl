@@ -8,6 +8,80 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "heym.validateConfiguration" -}}
+{{- $selector := include "heym.selectorLabels" . | fromYaml -}}
+{{- range $key, $value := .Values.podLabels -}}
+{{- if and (hasKey $selector $key) (ne (get $selector $key) $value) -}}
+{{- fail (printf "podLabels must not override Deployment selector label %s" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- $labels := mergeOverwrite (deepCopy $selector) .Values.podLabels -}}
+{{- if or (eq (get $labels "app.kubernetes.io/managed-by") "heym") (hasKey $labels "heym.run/network") -}}
+{{- fail "Backend labels must not select sandbox NetworkPolicies (managed-by=heym or heym.run/network)" -}}
+{{- end -}}
+{{- if .Values.sandbox.enabled -}}
+{{- if and (hasKey .Values.env "HEYM_SANDBOX_BACKEND") (ne (toString (get .Values.env "HEYM_SANDBOX_BACKEND")) "kubernetes") -}}
+{{- fail "sandbox.enabled requires HEYM_SANDBOX_BACKEND=kubernetes; disable sandbox.enabled to use another backend" -}}
+{{- end -}}
+{{- if hasKey .Values.env "HEYM_SANDBOX_K8S_POD_OVERRIDES" -}}
+{{- fail "Use sandbox.podOverrides instead of env.HEYM_SANDBOX_K8S_POD_OVERRIDES so scheduling fields are validated" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "heym.podLabels" -}}
+{{- $selector := include "heym.selectorLabels" . | fromYaml -}}
+{{- toYaml (mergeOverwrite (deepCopy $selector) .Values.podLabels) -}}
+{{- end -}}
+
+{{/* Preserve default-before-custom ordering for Kubernetes $(VAR) expansion.
+An explicit env value replaces its default entry instead of duplicating it.
+Writable cache/data paths and UV_NO_SYNC keep the stock image compatible with
+read-only root storage. The Python runner uses the GHCR release image layout. */}}
+{{- define "heym.environment" -}}
+{{- $defaults := list
+    (dict "name" "FRONTEND_URL" "value" .Values.url)
+    (dict "name" "CORS_ORIGINS" "value" .Values.url)
+    (dict "name" "BACKEND_WORKERS" "value" .Values.workers)
+    (dict "name" "AUTO_REWRITE_LOCAL_DATABASE_HOST" "value" "false")
+    (dict "name" "FILE_STORAGE_DIR" "value" "/app/data/files")
+    (dict "name" "HEYM_PLUGINS_DIR" "value" "/app/data/plugins")
+    (dict "name" "HOME" "value" "/tmp")
+    (dict "name" "UV_CACHE_DIR" "value" "/tmp/uv-cache")
+    (dict "name" "UV_NO_SYNC" "value" "1") -}}
+{{- if .Values.sandbox.enabled -}}
+{{- $defaults = append $defaults (dict "name" "HEYM_SANDBOX_BACKEND" "value" "kubernetes") -}}
+{{- if .Values.sandbox.podOverrides -}}
+{{- $defaults = append $defaults (dict "name" "HEYM_SANDBOX_K8S_POD_OVERRIDES" "value" (toJson .Values.sandbox.podOverrides)) -}}
+{{- end -}}
+{{- $defaults = append $defaults (dict "name" "HEYM_PYTHON_TOOL_RUNNER_PATH" "value" "/app/backend/app/services/python_tool_runner.py") -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $entry := $defaults }}
+{{- $_ := set $seen $entry.name true }}
+- name: {{ $entry.name }}
+  {{- if hasKey $.Values.env $entry.name }}
+  value: {{ get $.Values.env $entry.name | quote }}
+  {{- else }}
+  value: {{ $entry.value | quote }}
+  {{- end }}
+{{- end }}
+{{- range $name, $value := .Values.env }}
+{{- if not (hasKey $seen $name) }}
+- name: {{ $name }}
+  value: {{ $value | quote }}
+{{- end }}
+{{- end }}
+{{- range $name, $ref := .Values.secrets.keyRefs }}
+- name: {{ $name }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $ref.name | quote }}
+      key: {{ $ref.key | quote }}
+      optional: false
+{{- end }}
+{{- end -}}
+
 {{/* Selector labels. Sandbox pods never carry app.kubernetes.io/name, so the
 backend's selectors and NetworkPolicy cannot match them. */}}
 {{- define "heym.selectorLabels" -}}
