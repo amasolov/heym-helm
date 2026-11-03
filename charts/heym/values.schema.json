@@ -4,76 +4,239 @@
   "properties": {
     "platform": {
       "type": "string",
-      "enum": ["generic", "openshift", "eks", "aks", "gke"]
+      "enum": [
+        "generic",
+        "openshift",
+        "eks",
+        "aks",
+        "gke"
+      ]
     },
     "cni": {
       "type": "string",
       "description": "Only cilium changes anything today; leave empty for other CNIs.",
-      "enum": ["", "cilium"]
+      "enum": [
+        "",
+        "cilium"
+      ]
     },
-    "nameOverride": { "type": "string" },
-    "fullnameOverride": { "type": "string", "maxLength": 63 },
-    "annotations": { "type": "object" },
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "maxLength": 63
+    },
+    "annotations": {
+      "type": "object"
+    },
     "image": {
       "type": "object",
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string" },
-        "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" },
-        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[a-f0-9]{64})?$"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
       }
     },
-    "url": { "type": "string", "pattern": "^https?://" },
+    "url": {
+      "type": "string",
+      "pattern": "^https?://"
+    },
     "secrets": {
       "type": "object",
       "properties": {
-        "existingSecret": { "type": "string" },
-        "secretKey": { "type": "string" },
-        "encryptionKey": { "type": "string" },
-        "databaseUrl": { "type": "string" }
+        "existingSecret": {
+          "type": "string"
+        },
+        "secretKey": {
+          "type": "string"
+        },
+        "encryptionKey": {
+          "type": "string"
+        },
+        "databaseUrl": {
+          "type": "string"
+        },
+        "existingSecrets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "generate": {
+          "type": "boolean"
+        },
+        "keyRefs": {
+          "type": "object",
+          "properties": {
+            "SECRET_KEY": {
+              "type": "object",
+              "required": [
+                "name",
+                "key"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "ENCRYPTION_KEY": {
+              "type": "object",
+              "required": [
+                "name",
+                "key"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "DATABASE_URL": {
+              "type": "object",
+              "required": [
+                "name",
+                "key"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
       }
     },
     "env": {
       "type": "object",
-      "additionalProperties": { "type": ["string", "number", "boolean"] }
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean"
+        ]
+      }
     },
-    "workers": { "type": "integer", "minimum": 1 },
+    "workers": {
+      "type": "integer",
+      "minimum": 1
+    },
     "persistence": {
       "type": "object",
       "properties": {
-        "existingClaim": { "type": "string" },
+        "existingClaim": {
+          "type": "string"
+        },
         "accessModes": {
           "type": "array",
-          "items": { "type": "string", "enum": ["ReadWriteOnce", "ReadWriteMany"] },
+          "items": {
+            "type": "string",
+            "enum": [
+              "ReadWriteOnce",
+              "ReadWriteMany"
+            ]
+          },
           "minItems": 1
         },
-        "size": { "type": "string" },
-        "storageClass": { "type": "string" }
+        "size": {
+          "type": "string"
+        },
+        "storageClass": {
+          "type": "string"
+        }
       }
     },
     "sandbox": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "podOverrides": {
           "type": "object",
           "description": "Only these keys: Heym disables its Kubernetes backend on any other.",
           "properties": {
-            "nodeSelector": { "type": "object" },
-            "tolerations": { "type": "array" },
-            "runtimeClassName": { "type": "string" },
-            "imagePullSecrets": { "type": "array" },
-            "priorityClassName": { "type": "string" }
+            "nodeSelector": {
+              "type": "object"
+            },
+            "tolerations": {
+              "type": "array"
+            },
+            "runtimeClassName": {
+              "type": "string"
+            },
+            "imagePullSecrets": {
+              "type": "array"
+            },
+            "priorityClassName": {
+              "type": "string"
+            }
           },
           "additionalProperties": false
         },
         "networkPolicy": {
           "type": "object",
           "properties": {
-            "create": { "type": "boolean" },
-            "exceptCIDRs": { "type": "array", "items": { "type": "string" } },
-            "extraExceptCIDRs": { "type": "array", "items": { "type": "string" } },
-            "allowAllEgress": { "type": ["boolean", "null"] }
+            "create": {
+              "type": "boolean"
+            },
+            "exceptCIDRs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "extraExceptCIDRs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "allowAllEgress": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         }
       }
@@ -81,17 +244,103 @@
     "networkPolicy": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "allowInternet": { "type": "boolean" },
-        "apiServerCIDRs": { "type": "array", "items": { "type": "string" } },
-        "ingressFrom": { "type": "array" },
-        "extraEgress": { "type": "array" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "allowInternet": {
+          "type": "boolean"
+        },
+        "apiServerCIDRs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ingressFrom": {
+          "type": "array"
+        },
+        "extraEgress": {
+          "type": "array"
+        }
       }
     },
-    "ciliumApiServerPolicy": { "type": ["boolean", "null"] },
+    "ciliumApiServerPolicy": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "route": {
       "type": "object",
-      "properties": { "enabled": { "type": ["boolean", "null"] } }
+      "properties": {
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "selectorLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "command": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extraPorts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "extraVolumes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "extraVolumeMounts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "envFrom": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "workingDir": {
+      "type": "string"
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "portName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "extraPorts": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
     }
   }
 }

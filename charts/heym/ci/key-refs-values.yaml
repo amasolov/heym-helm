@@ -1,0 +1,6 @@
+platform: openshift
+secrets:
+  keyRefs:
+    SECRET_KEY: {name: existing-signing-key, key: value}
+    ENCRYPTION_KEY: {name: existing-encryption-key, key: value}
+    DATABASE_URL: {name: existing-database-url, key: url}

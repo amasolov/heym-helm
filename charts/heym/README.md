@@ -17,20 +17,89 @@ Clause; this chart is Apache-2.0.
 
 ## Install
 
-```bash
-kubectl create namespace heym
-kubectl -n heym create secret generic heym-secret \
-  --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
-  --from-literal=ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-  --from-literal=DATABASE_URL='postgresql+asyncpg://heym:PASSWORD@HOST:5432/heym'
-helm install heym oci://ghcr.io/amasolov/charts/heym -n heym \
-  --set platform=generic --set secrets.existingSecret=heym-secret \
-  --set url=https://heym.example.com
+For a fresh install, provide your external PostgreSQL connection in an ignored
+`values.private.yaml` (or supply it from an external Secret):
+
+```yaml
+secrets:
+  databaseUrl: postgresql+asyncpg://USER:PASSWORD@HOST:5432/heym
 ```
 
-**Back up `ENCRYPTION_KEY`.** It encrypts every stored credential. The chart
-never generates it, because GitOps tools render charts without `lookup`, so a
-generated key would change on every sync.
+```bash
+helm install heym oci://ghcr.io/amasolov/charts/heym -n heym --create-namespace \
+  -f values.private.yaml --set url=https://heym.example.com
+```
+
+The chart does not deploy PostgreSQL. It generates `SECRET_KEY` and a valid
+32-byte Fernet `ENCRYPTION_KEY` in a create-once hook Job when needed. Keys are
+created in Kubernetes, never randomized during Helm rendering. Retries, Helm
+upgrades and Argo syncs reuse the existing `<fullname>-generated-keys` Secret;
+they do not rotate it. The Secret is intentionally retained across uninstall.
+Back up the encryption key alongside the database: replacing it loses access to
+stored credentials. Losing a generated Secret is not a supported key rotation.
+
+### Choose which secrets you control
+
+A single pre-created Secret remains supported (no generated Secret or key Job):
+
+```yaml
+secrets:
+  existingSecret: heym-secret
+```
+
+That Secret normally contains `SECRET_KEY`, `ENCRYPTION_KEY`, and `DATABASE_URL`.
+For split SOPS/ESO Secrets, reference them directly and disable generation:
+
+```yaml
+secrets:
+  generate: false
+  existingSecrets: [heym-runtime, heym-database]
+envFrom:
+  - configMapRef:
+      name: heym-database-host-settings
+```
+
+Together these sources must supply application keys and either `DATABASE_URL`
+or Heym's `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER` and
+`POSTGRES_PASSWORD` settings. The chart renders references only, and does not
+look up or take ownership of pre-created Secrets.
+
+You can also control individual keys, including custom source key names:
+
+```yaml
+secrets:
+  existingSecrets: [database-connection]
+  keyRefs:
+    ENCRYPTION_KEY:
+      name: important-heym-key
+      key: encryption-key
+```
+
+This example keeps the external encryption key and generates application defaults
+for the remaining keys. Per-key refs use `optional: false`, so a missing Secret
+or key blocks startup. Generated defaults are loaded first, inline values next,
+then `existingSecrets` in order and `envFrom`. `keyRefs` and explicit `env`
+entries take precedence over those bulk sources; do not define the same key in
+both `keyRefs` and `env`. Never change the encryption-key source on an existing
+database unless the new source contains the same key or a separately planned
+credential migration is performed.
+
+Generation uses a restricted, non-root hook Job with its own ServiceAccount. Its
+namespaced Role can get only the target Secret and create Secrets; Kubernetes
+RBAC cannot constrain `create` by resource name. It has no update, delete or list
+permissions. The Job logs no key values. Helm hooks and explicit Argo PreSync
+annotations support either lifecycle, including apps with other Argo hooks.
+The hook's ServiceAccount/Role/RoleBinding remain for subsequent runs; remove them
+explicitly when retiring generation. With fully pre-created keys, disable
+generation and none of those resources are rendered.
+
+Existing inline `secretKey`, `encryptionKey` and `databaseUrl` values still work.
+Fully supplied inline keys do not run generation. Inline Secret resources carry
+a retention annotation. When moving an older chart's unannotated inline Secret
+to external ownership, first upgrade with the same inline values to add retention,
+then switch to `existingSecret` pointing to that same Secret. Do not combine the
+single `existingSecret` mode with inline values. No existing key is automatically
+copied, deleted or rotated when choosing a different source.
 
 ## Requirements
 
@@ -106,27 +175,35 @@ With a `ReadWriteOnce` data volume, sandboxes run on the backend's node. Use
 
 ## Moving an existing install onto this chart
 
-A Deployment's selector is immutable. If Heym already runs from another chart
-(app-template, say) or from plain manifests, the chart can't take over the
-existing Deployment in place. Set `fullnameOverride` to a new name, such as
-`heym-app`, so nothing collides:
+A Deployment's selector is immutable. For an Argo-managed plain-manifest install,
+keep the same Application and resource names and set `selectorLabels` to the
+**exact existing selector**, for example:
 
-- **Plain `helm upgrade` on the same release:** Helm creates the new objects
-  and deletes the old ones in one step.
-- **Flux:** when a HelmRelease's chart name changes, Flux uninstalls the old
-  release and installs the new one. The new name still keeps the new objects
-  clear of anything the old release or your own manifests own.
+```yaml
+fullnameOverride: heym
+selectorLabels: {app: heym}
+persistence: {existingClaim: heym-files}
+secrets:
+  generate: false
+  existingSecrets: [heym-runtime, heym-database]
+```
 
-Either way:
+This preserves identity while Argo changes the rendering source. Use `envFrom`
+for existing ConfigMaps and `command`, `args`, `workingDir`, `extraVolumes` and
+`extraVolumeMounts` for required runtime/trust customization. `extraPorts` and
+`service.extraPorts` preserve an API port used by provisioners; `service.portName`
+can keep an existing Route target. Exactly one application container remains.
 
-- **Keep the data volume outside the release** (`persistence.existingClaim`),
-  so neither path can delete it. With `ReadWriteOnce`, expect a short outage
-  while the volume moves to the new pod.
-- **Keep your existing NetworkPolicies until the chart's are in place.**
-  Policies are additive and the new names differ, so leaving the old ones
-  during the switch means the pods are never unfenced. Remove them afterwards.
-- **Update anything that targets the old name,** such as a VPA, a
-  ServiceMonitor, or a Reloader or PDB selector.
+Do not change `selectorLabels` later. If you cannot preserve the selector or
+reconciler ownership, choose a new `fullnameOverride` and plan a controlled cutover.
+A native Helm install also requires explicitly adopting existing resource
+ownership; a selector override alone does not transfer that ownership.
+
+Keep the data PVC and important keys outside the release, preserve every existing
+encryption key, and compare rendered object identities and Service selectors
+before syncing. RWO storage and the single-replica Recreate strategy imply a
+short outage. Keep sandbox policies in force during cutover; policies are
+additive, so an old allow-all policy must not remain under another name.
 
 ## Values
 
@@ -137,6 +214,8 @@ The main ones; see [values.yaml](values.yaml) for all of them.
 | `platform`                | `generic`          | see above                                                                   |
 | `cni`                     | `""`               | `cilium` for Cilium with kube-proxy replacement                             |
 | `url`                     | `http://localhost:4017` | public URL (`FRONTEND_URL`, `CORS_ORIGINS`)                            |
+| `secrets.existingSecrets` / `keyRefs` | `[]` / `{}` | split external sources and required per-key references |
+| `secrets.generate` | `true` | durable create-once application keys when not fully supplied |
 | `secrets.existingSecret`  | `""`               | Secret with `SECRET_KEY`, `ENCRYPTION_KEY`, `DATABASE_URL`                  |
 | `image.digest`            | `""`               | pins the backend and, through it, every sandbox                             |
 | `env`                     | `{}`               | extra Heym settings, e.g. `HEYM_ADMIN_EMAILS`                               |

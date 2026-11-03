@@ -13,6 +13,9 @@ platform: generic
 # Deployment in place fails.
 nameOverride: ""
 fullnameOverride: ""
+# Preserve an existing Deployment's immutable selector during adoption. Empty
+# keeps the standard chart labels. Do not change it after the first deployment.
+selectorLabels: {}
 
 # The CNI, where it changes what the chart renders. Separate from platform:
 # Cilium runs on many platforms, and most platforms offer several CNIs.
@@ -37,14 +40,25 @@ imagePullSecrets: []
 # Public URL Heym is served on. Used for FRONTEND_URL and CORS_ORIGINS.
 url: http://localhost:4017
 
-# Secrets Heym cannot start without. Generating them in the chart is
-# deliberately not offered: GitOps tools render charts without `lookup`, so a
-# generated ENCRYPTION_KEY would change on every sync and make every stored
-# credential unreadable.
+# Fresh installs can generate durable application keys in a pre-install hook.
+# The hook creates its Secret once, never rotates it, and works with Argo CD.
+# Pre-created or ESO-managed Secrets can replace all or selected keys.
 secrets:
   # An existing Secret with keys SECRET_KEY, ENCRYPTION_KEY and DATABASE_URL.
   # Recommended: create it with External Secrets, SOPS or Sealed Secrets.
   existingSecret: ""
+  # Additional pre-created Secrets, loaded in order after chart-owned values.
+  # Together they may supply keys and/or the external database connection.
+  existingSecrets: []
+  # Optional required per-key references, with custom source key names. These
+  # override envFrom and generated defaults; a missing key blocks pod startup.
+  # keyRefs:
+  #   ENCRYPTION_KEY: {name: important-heym-key, key: encryption-key}
+  keyRefs: {}
+  # If existingSecret is empty and application keys are not fully supplied
+  # inline or through keyRefs, create
+  # <fullname>-generated-keys once. Disable for fully external secret management.
+  generate: true
   # Or values, written into a Secret this chart creates. Fine for a trial.
   secretKey: ""
   encryptionKey: ""
@@ -58,6 +72,16 @@ secrets:
 env: {}
 # Extra environment from Secrets or ConfigMaps.
 envFrom: []
+
+# Optional runtime customization, including application-scoped CA bundles and
+# Git-managed provisioning code. No extra containers are added (sandbox image
+# discovery requires exactly one application container).
+command: []
+args: []
+workingDir: ""
+extraPorts: []
+extraVolumes: []
+extraVolumeMounts: []
 
 # Uvicorn workers. Each is a full process with its own database pool, and the
 # image's default sizes from the node's cores, not the pod's limit.
@@ -93,6 +117,8 @@ priorityClassName: ""
 service:
   type: ClusterIP
   port: 4017
+  portName: http
+  extraPorts: []
   annotations: {}
 
 persistence:
@@ -142,10 +168,8 @@ sandbox:
     dns:
       namespaceSelector: {}
       podSelector: {}
-    # Allow all egress for online sandboxes. Only for CNIs where the DNS rule
-    # above cannot be made to work: OpenShift's OVN-Kubernetes timed out on
-    # every selective DNS allow in testing (heymrun/heym#832). Empty uses the
-    # platform default; offline sandboxes stay deny-all either way.
+    # Explicit allow-all escape hatch. Empty keeps DNS plus restricted public
+    # egress on every platform, including OpenShift (DNS pod port 5353).
     allowAllEgress: null
 
 # A NetworkPolicy for the backend itself. Off by default because what Heym

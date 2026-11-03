@@ -1,7 +1,5 @@
 {{- include "heym.validPlatform" . -}}
-{{- if and (not .Values.secrets.existingSecret) (not (and .Values.secrets.secretKey .Values.secrets.encryptionKey .Values.secrets.databaseUrl)) -}}
-{{- fail "Set secrets.existingSecret, or all of secrets.secretKey, secrets.encryptionKey and secrets.databaseUrl" -}}
-{{- end -}}
+{{- include "heym.validateSecrets" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -56,10 +54,24 @@ spec:
         - name: heym
           image: {{ include "heym.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.workingDir }}
+          workingDir: {{ . | quote }}
+          {{- end }}
           ports:
-            - name: http
+            - name: {{ .Values.service.portName }}
               containerPort: 4017
               protocol: TCP
+            {{- with .Values.extraPorts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           env:
             - name: FRONTEND_URL
               value: {{ .Values.url | quote }}
@@ -104,12 +116,32 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- range $name, $ref := .Values.secrets.keyRefs }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.name | quote }}
+                  key: {{ $ref.key | quote }}
+                  optional: false
+            {{- end }}
+          {{- if or (include "heym.generateKeys" .) .Values.secrets.existingSecret (include "heym.inlineSecret" .) .Values.secrets.existingSecrets .Values.envFrom }}
           envFrom:
+            {{- if include "heym.generateKeys" . }}
+            - secretRef:
+                name: {{ include "heym.fullname" . }}-generated-keys
+            {{- end }}
+            {{- if or .Values.secrets.existingSecret (include "heym.inlineSecret" .) }}
             - secretRef:
                 name: {{ include "heym.secretName" . }}
+            {{- end }}
+            {{- range .Values.secrets.existingSecrets }}
+            - secretRef:
+                name: {{ . | quote }}
+            {{- end }}
             {{- with .Values.envFrom }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -121,18 +153,18 @@ spec:
           startupProbe:
             httpGet:
               path: /api/health
-              port: http
+              port: {{ .Values.service.portName }}
             periodSeconds: 5
             failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /api/health
-              port: http
+              port: {{ .Values.service.portName }}
             periodSeconds: 15
           livenessProbe:
             httpGet:
               path: /api/health
-              port: http
+              port: {{ .Values.service.portName }}
             periodSeconds: 30
             failureThreshold: 5
           resources:
@@ -147,6 +179,9 @@ spec:
               mountPath: /app/frontend/node_modules/.vite-temp
             - name: shm
               mountPath: /dev/shm
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -159,6 +194,9 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: {{ .Values.shmSize }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

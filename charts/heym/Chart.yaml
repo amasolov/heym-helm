@@ -5,7 +5,7 @@ description: >-
   (Python tools, skills, Code node, MCP stdio, Playwright, Codex, OpenCode) as
   its own restricted pod, with no Docker socket.
 type: application
-version: 0.1.2
+version: 0.2.0
 # Heym's release tag. The image is ghcr.io/heymrun/heym:<appVersion>.
 appVersion: "0.0.144"
 # The Kubernetes sandbox backend needs 1.30+ (heymrun/heym#848).
@@ -40,6 +40,6 @@ annotations:
       image: ghcr.io/heymrun/heym:0.0.144
   artifacthub.io/changes: |
     - kind: added
-      description: README packaged with the chart, so Artifact Hub shows it
+      description: Durable first-install keys and split pre-created Secret references
     - kind: added
-      description: Guide for moving an existing install onto the chart
+      description: Runtime mounts, API ports and selector preservation for OpenShift adoption

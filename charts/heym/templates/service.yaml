@@ -13,7 +13,10 @@ spec:
   selector:
     {{- include "heym.selectorLabels" . | nindent 4 }}
   ports:
-    - name: http
+    - name: {{ .Values.service.portName }}
       port: {{ .Values.service.port }}
-      targetPort: http
+      targetPort: {{ .Values.service.portName }}
       protocol: TCP
+    {{- with .Values.service.extraPorts }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}

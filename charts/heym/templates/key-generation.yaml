@@ -1,0 +1,117 @@
+{{- if include "heym.generateKeys" . }}
+{{- $name := printf "%s-keygen" (include "heym.fullname" . | trunc 52 | trimSuffix "-") }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    helm.sh/hook: pre-install,pre-upgrade
+    argocd.argoproj.io/sync-wave: "-20"
+    helm.sh/hook-weight: "-20"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    helm.sh/hook-delete-policy: before-hook-creation
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    helm.sh/hook: pre-install,pre-upgrade
+    argocd.argoproj.io/sync-wave: "-20"
+    helm.sh/hook-weight: "-20"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    helm.sh/hook-delete-policy: before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ printf "%s-generated-keys" (include "heym.fullname" .) | quote }}]
+    verbs: [get]
+  # Kubernetes cannot constrain create by resourceName. No update/delete/list access.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    helm.sh/hook: pre-install,pre-upgrade
+    argocd.argoproj.io/sync-wave: "-10"
+    helm.sh/hook-weight: "-10"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    helm.sh/hook-delete-policy: before-hook-creation
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    helm.sh/hook: pre-install,pre-upgrade
+    argocd.argoproj.io/sync-wave: "0"
+    helm.sh/hook-weight: "0"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      restartPolicy: Never
+      securityContext:
+        {{- include "heym.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: generate-keys
+          image: {{ include "heym.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/app/backend/.venv/bin/python, -c]
+          args:
+            - |
+              {{- .Files.Get "files/generate-keys.py" | nindent 14 }}
+          env:
+            - name: KEY_SECRET_NAME
+              value: {{ include "heym.fullname" . }}-generated-keys
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 100m, memory: 128Mi}
+{{- end }}
