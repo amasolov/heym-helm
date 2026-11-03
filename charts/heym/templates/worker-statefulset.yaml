@@ -1,0 +1,165 @@
+{{- if .Values.cluster.enabled }}
+# Load-distribution workers. A StatefulSet, not a Deployment: the pod name is
+# each worker's HEYM_INSTANCE_ID, so it has to be unique and survive restarts,
+# and each worker gets its own workspace claim from volumeClaimTemplates.
+#
+# No Service: workers take work from the database queue, not from requests.
+# Main owns the schema; a worker that starts before main has migrated (or on
+# a different version or key set) shows as Mismatch and gets no work until
+# they match, so no ordering between the two is needed.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "heym.workerName" . }}
+  labels:
+    {{- include "heym.workerLabels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.cluster.replicas }}
+  serviceName: {{ include "heym.workerName" . }}
+  # Workers are independent; start and replace them together.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "heym.workerSelectorLabels" . | nindent 6 }}
+  # The claim only holds per-run Code node directories, deleted when each run
+  # ends, so nothing in it is worth keeping once its worker is gone.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Delete
+  template:
+    metadata:
+      labels:
+        {{- include "heym.workerSelectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+        {{- with .Values.cluster.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.cluster.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "heym.serviceAccountName" . }}
+      # Workers start sandbox pods too, with the backend's Role.
+      automountServiceAccountToken: {{ .Values.sandbox.enabled }}
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ .Values.cluster.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cluster.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- include "heym.podSecurityContext" . | nindent 8 }}
+      # Exactly one container, as on the backend: Heym takes the sandbox image
+      # from its own pod only when the pod has a single container.
+      containers:
+        - name: heym
+          image: {{ include "heym.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The API alone, without the image entrypoint: that runs
+          # `alembic upgrade head` on every start, and only main migrates.
+          workingDir: /app/backend
+          command:
+            - /app/backend/.venv/bin/python
+            - -m
+            - uvicorn
+            - app.main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "10105"
+            - --workers
+            - {{ .Values.cluster.processes | quote }}
+          ports:
+            - name: api
+              containerPort: 10105
+              protocol: TCP
+          env:
+            {{- include "heym.environment" (dict "root" . "role" "worker") | nindent 12 }}
+          {{- with include "heym.envFrom" . | trim }}
+          envFrom:
+            {{- . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: api
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: api
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: api
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.cluster.resources | nindent 12 }}
+          volumeMounts:
+            # Heym resolves each sandbox's workspace to a subPath of the claim
+            # mounted here, read from this pod's own spec.
+            - name: data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+            # Step-based Playwright runs in the worker process.
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.shmSize }}
+      {{- with .Values.cluster.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cluster.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cluster.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.cluster.spreadAcrossNodes }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "heym.workerSelectorLabels" . | nindent 14 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.cluster.persistence.accessModes | nindent 10 }}
+        {{- with .Values.cluster.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.cluster.persistence.size }}
+{{- end }}

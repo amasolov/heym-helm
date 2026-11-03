@@ -23,29 +23,29 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
   egress:
-    {{- include "heym.dnsEgress" . | nindent 4 }}
-    {{- if .Values.networkPolicy.allowInternet }}
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              {{- include "heym.exceptCIDRs" . | nindent 14 }}
-    {{- end }}
-    {{- if and .Values.sandbox.enabled .Values.networkPolicy.apiServerCIDRs }}
-    # The API server, to start sandbox pods. Its endpoints are node or
-    # control-plane addresses, usually inside the private ranges above.
-    - to:
-        {{- range .Values.networkPolicy.apiServerCIDRs }}
-        - ipBlock:
-            cidr: {{ . }}
-        {{- end }}
-      ports:
-        - port: 443
-          protocol: TCP
-        - port: 6443
-          protocol: TCP
-    {{- end }}
-    {{- with .Values.networkPolicy.extraEgress }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- include "heym.backendEgress" . | nindent 4 }}
+{{- if .Values.cluster.enabled }}
+---
+# Workers. The same egress as the backend, because leader duties (scheduler,
+# alerts, IMAP/RabbitMQ/WebSocket/Google listeners) can run on any instance.
+# No ingress: workers take work from the database queue. Kubelet probes come
+# from the node, which common CNIs (Cilium, OVN-Kubernetes, Calico) allow
+# regardless of policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "heym.workerName" . }}
+  labels:
+    {{- include "heym.workerLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "heym.workerSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    {{- include "heym.backendEgress" . | nindent 4 }}
+{{- end }}
 {{- end }}

@@ -86,8 +86,56 @@ extraVolumes: []
 extraVolumeMounts: []
 
 # Uvicorn workers. Each is a full process with its own database pool, and the
-# image's default sizes from the node's cores, not the pod's limit.
+# image's default sizes from the node's cores, not the pod's limit. Not to be
+# confused with cluster workers below, which are separate pods.
 workers: 2
+
+# Load distribution (HEYM_CLUSTER_ENABLED): worker pods that take queued runs
+# - schedules, webhooks, the execute API, chat portals, MCP, Slack/Telegram/
+# Discord, IMAP and RabbitMQ triggers - split by the weights under Settings ->
+# Instances. The UI, API, ingress, editor test runs and workflows with
+# main-only nodes (Codex, OpenCode, skills, Drive, plugins, ...) stay on the
+# backend above. Leader duties can land on a worker, so workers get the
+# backend's egress, database access and sandbox Role.
+cluster:
+  enabled: false
+  # Worker pods, from a StatefulSet: each takes its pod name as its stable
+  # HEYM_INSTANCE_ID. To scale down cleanly, set the highest-numbered workers'
+  # weight to 0 a minute before lowering this; runs already queued for a
+  # removed worker are skipped once the misfire grace window passes.
+  replicas: 2
+  # Uvicorn processes per worker.
+  processes: 2
+  # Extra environment for workers only, merged over env (e.g. smaller
+  # HEYM_DB_POOL_SIZE: every worker process holds its own pool).
+  env: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  # The Code node workspace. A Code node with requirements installs them into
+  # a per-run directory that its sandbox mounts as a subPath of this claim, so
+  # it must be a PersistentVolumeClaim; emptyDir does not work. Runs are
+  # short-lived and the directory is deleted afterwards, so it is small, and
+  # ReadWriteOnce is fine: a worker's sandboxes follow it to its node.
+  persistence:
+    size: 2Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  # Spread workers, and with them their sandboxes, across nodes.
+  spreadAcrossNodes: true
+  # How long a stopping worker gets before it is killed. A run it had claimed
+  # when the pod dies is marked failed, not retried.
+  terminationGracePeriodSeconds: 120
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  priorityClassName: ""
 
 resources:
   requests:

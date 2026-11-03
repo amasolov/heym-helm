@@ -13,6 +13,7 @@ import re
 import secrets
 import subprocess
 import tempfile
+import time
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -51,6 +52,22 @@ with urllib.request.urlopen('http://127.0.0.1:4017/api/health', timeout=15) as r
     assert r.status == 200 and json.load(r)['status'] == 'healthy'
 print('Application health passed')
 """
+WORKER = RELEASE + "-worker"
+WORKER_HEALTH = """import json,urllib.request
+with urllib.request.urlopen('http://127.0.0.1:10105/api/health', timeout=15) as r:
+    assert r.status == 200 and json.load(r)['status'] == 'healthy'
+print('Worker health passed')
+"""
+CLUSTER_ROWS = """import json
+from sqlalchemy import text
+from app.db.session import sync_engine
+with sync_engine.begin() as db:
+    rows = db.execute(text(
+        'SELECT id, role, version, schema_revision, keys_fingerprint, '
+        'extract(epoch from now() - heartbeat_at) FROM cluster_instances'
+    )).all()
+print(json.dumps([[str(c) for c in row] for row in rows]))
+"""
 
 
 def validate_target(context, namespace):
@@ -74,8 +91,8 @@ def key_identity(secret):
     ).digest()
 
 
-def test_values(phase, external=False):
-    return {
+def test_values(phase, external=False, workers=0):
+    values = {
         "fullnameOverride": RELEASE,
         "platform": "generic",
         "workers": 1,
@@ -97,6 +114,23 @@ def test_values(phase, external=False):
             "DOCKER_LOGS_ENABLED": "false",
         },
     }
+    if workers:
+        values["cluster"] = {
+            "enabled": True,
+            "replicas": workers,
+            "processes": 1,
+            "persistence": {"size": "256Mi"},
+            "resources": {"requests": {"cpu": "50m", "memory": "256Mi"}},
+            "terminationGracePeriodSeconds": 10,
+            # Stay well inside the disposable database's 100 connections.
+            "env": {
+                "HEYM_DB_POOL_SIZE": "2",
+                "HEYM_DB_MAX_OVERFLOW": "2",
+                "HEYM_DB_SYNC_POOL_SIZE": "1",
+                "HEYM_DB_SYNC_MAX_OVERFLOW": "1",
+            },
+        }
+    return values
 
 
 class Lifecycle:
@@ -342,7 +376,7 @@ class Lifecycle:
             self.command(command + [str(self.chart), "-f", file.name])
 
     def backend(self, code):
-        self.kube(
+        return self.kube(
             "exec",
             "deployment/" + RELEASE,
             "-c",
@@ -352,6 +386,59 @@ class Lifecycle:
             "-c",
             code,
         )
+
+    def worker(self, index, code):
+        return self.kube(
+            "exec",
+            f"{WORKER}-{index}",
+            "-c",
+            "heym",
+            "--",
+            "/app/backend/.venv/bin/python",
+            "-c",
+            code,
+        )
+
+    def verify_workers(self, count):
+        """Each worker is healthy, holds its own claim and joined under its
+        pod name with main's version, schema and key digest; removed workers
+        lose their claim."""
+        for index in range(count):
+            self.worker(index, WORKER_HEALTH)
+            pvc = self.get("pvc", f"data-{WORKER}-{index}")
+            if pvc["status"]["phase"] != "Bound":
+                raise RuntimeError(f"Worker {index} workspace claim is not bound")
+        wanted = {f"{WORKER}-{index}" for index in range(count)}
+        deadline = time.monotonic() + 120
+        while True:
+            rows = json.loads(self.backend(CLUSTER_ROWS).stdout.strip().splitlines()[-1])
+            main = [r for r in rows if r[1] == "main"]
+            live = {
+                r[0]: r for r in rows if r[1] == "worker" and float(r[5]) < 60
+            }
+            if main and wanted <= live.keys():
+                break
+            if time.monotonic() > deadline:
+                raise RuntimeError("Workers did not join the cluster under their pod names")
+            time.sleep(5)
+        for name in wanted:
+            if live[name][2:5] != main[0][2:5]:
+                raise RuntimeError(f"{name} differs from main (version, schema or keys)")
+        deadline = time.monotonic() + 120
+        while True:
+            claims = json.loads(self.kube("get", "pvc", "-o", "json").stdout)["items"]
+            stale = [
+                c["metadata"]["name"]
+                for c in claims
+                if c["metadata"]["name"].startswith(f"data-{WORKER}-")
+                and int(c["metadata"]["name"].rsplit("-", 1)[1]) >= count
+                and not c["metadata"].get("deletionTimestamp")
+            ]
+            if not stale:
+                return
+            if time.monotonic() > deadline:
+                raise RuntimeError("Scaled-down worker claims were not deleted")
+            time.sleep(5)
 
     def pod_uid(self):
         pods = json.loads(
@@ -434,6 +521,15 @@ class Lifecycle:
         print(
             "Pre-created Secret mode preserved external keys and decrypted the original data"
         )
+        self.helm("upgrade", test_values("cluster", external=True, workers=2))
+        self.verify(EXTERNAL, external_identity, pvc_uid)
+        self.verify_workers(2)
+        self.helm("upgrade", test_values("cluster-scaled", external=True, workers=1))
+        self.verify_workers(1)
+        print(
+            "Two workers joined under their pod names with main's keys and schema; "
+            "scaling to one removed the other's claim"
+        )
 
     def owns_namespace(self):
         if not self.created:
@@ -466,6 +562,7 @@ class Lifecycle:
             ("get", "events", "--sort-by=.lastTimestamp"),
             ("logs", "deployment/" + RELEASE, "--tail=80"),
             ("logs", "deployment/" + DB, "--tail=80"),
+            ("logs", "statefulset/" + WORKER, "--tail=80"),
         ):
             result = self.kube(*args, check=False)
             print(self.redact(result.stdout + result.stderr))
@@ -514,12 +611,14 @@ def main():
                         "forced-pod-roll upgrade",
                         "uninstall/reinstall",
                         "pre-created-secret install/upgrade",
+                        "two cluster workers, then scale to one",
                     ],
                     "checks": [
                         "health",
                         "key identity",
                         "encrypted DB probe",
                         "PVC identity and file",
+                        "worker health, IDs, key digest and claims",
                     ],
                     "cleanup": "delete namespace only if this process created and still owns it",
                     "model_calls": 0,

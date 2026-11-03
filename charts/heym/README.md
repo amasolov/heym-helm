@@ -173,6 +173,58 @@ nothing else in Heym's namespace.
 With a `ReadWriteOnce` data volume, sandboxes run on the backend's node. Use
 `ReadWriteMany` to spread them across nodes.
 
+## Load distribution (workers)
+
+```yaml
+cluster:
+  enabled: true
+  replicas: 2
+```
+
+This turns on Heym's clustering (`HEYM_CLUSTER_ENABLED`) and adds a StatefulSet
+of worker pods. Queued runs are split between main and the workers by the
+weights under **Settings → Instances**: schedules, webhooks and the execute
+API, chat portals, MCP, Slack, Telegram and Discord, IMAP and RabbitMQ
+triggers, Heym events and error workflows.
+
+These always stay on the main pod: the UI, API, MCP endpoint and all ingress,
+editor test runs, and any workflow with a main-only node (Codex, OpenCode, an
+agent with a skill, Drive, Converter, Google Drive, File Upload, Send Email,
+plugins, Slack file operations, a sub-workflow chosen by an expression).
+
+What the chart does for each worker:
+
+- **Instance ID.** It's the pod name (`<release>-worker-0`, `-1`, …), unique and
+  stable across restarts. A rescheduled worker rejoins its own row and keeps its
+  weight.
+- **No migrations.** Workers start uvicorn directly instead of the image
+  entrypoint, which runs `alembic upgrade head`. A worker whose version, schema
+  or key digest differs from main's shows as **Mismatch** and gets no work, so
+  an upgrade needs no ordering: workers stay idle until main has migrated.
+- **Same secrets and Role as main.** Workers start sandbox pods too, and a
+  worker with different keys would be a Mismatch.
+- **Its own workspace claim** from `volumeClaimTemplates` (`cluster.persistence`).
+  It only holds per-run Code node directories, so it is small, `ReadWriteOnce`
+  is fine (a worker's sandboxes follow it to its node), and it is deleted with
+  the worker. It can't be an `emptyDir`: sandboxes mount the workspace as a
+  subPath of a claim.
+- **Spread across nodes** (`cluster.spreadAcrossNodes`), and with them their
+  sandboxes, which is most of the gain on `ReadWriteOnce` storage.
+- **No Service and no ingress.** With `networkPolicy.enabled`, workers get the
+  backend's egress, because leader duties (the scheduler, alerts, run recovery,
+  the IMAP, RabbitMQ, WebSocket and Google listeners) can run on any instance.
+  With `cni: cilium` they get their own API-server rule.
+
+Every worker process holds its own database pool. Size `cluster.env` (for
+example `HEYM_DB_POOL_SIZE`) against your database's connection limit.
+
+**Scaling down.** Set the weight of the workers you are removing (the
+highest-numbered ones) to 0 under Settings → Instances a minute before lowering
+`cluster.replicas`. Runs already queued for a removed worker are not moved; they
+are skipped once the misfire grace window (10 minutes by default) passes. A run
+a worker was executing when its pod stopped is marked failed, not retried. The
+removed worker's row shows Offline after 30 seconds; an admin can delete it.
+
 ## Moving an existing install onto this chart
 
 A Deployment's selector is immutable. For an Argo-managed plain-manifest install,
@@ -222,6 +274,7 @@ The main ones; see [values.yaml](values.yaml) for all of them.
 | `persistence.accessModes` | `[ReadWriteOnce]`  | `ReadWriteMany` lets sandboxes leave the backend's node                     |
 | `sandbox.podOverrides`    | `{}`               | `runtimeClassName`, `nodeSelector`, `tolerations` for sandbox pods          |
 | `networkPolicy.enabled`   | `false`            | a policy for the backend too; add site-specific `extraEgress`               |
+| `cluster.enabled` / `replicas` | `false` / `2` | load-distribution workers; see [Load distribution](#load-distribution-workers) |
 | `ingress` / `httpRoute` / `route` | off (Route on for OpenShift) | exposure                                              |
 
 ## Testing and configuration guardrails
