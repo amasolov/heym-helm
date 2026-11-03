@@ -215,6 +215,14 @@ What the chart does for each worker:
   the IMAP, RabbitMQ, WebSocket and Google listeners) can run on any instance.
   With `cni: cilium` they get their own API-server rule.
 
+Worker startup and mounts can be configured with `cluster.command`,
+`cluster.args`, `cluster.workingDir`, `cluster.extraVolumes` and
+`cluster.extraVolumeMounts`. Backend startup and mounts are not inherited.
+If your environment references a custom CA file, mount the trust inputs and
+prepare that file in each worker before starting the API on port 10105.
+Keep worker startup free of database migrations and frontend processes.
+Compatibility patches needed by queued workflows must also be mounted on workers.
+
 Every worker process holds its own database pool. Size `cluster.env` (for
 example `HEYM_DB_POOL_SIZE`) against your database's connection limit.
 

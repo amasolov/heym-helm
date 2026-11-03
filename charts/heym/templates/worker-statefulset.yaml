@@ -66,7 +66,11 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           # The API alone, without the image entrypoint: that runs
           # `alembic upgrade head` on every start, and only main migrates.
-          workingDir: /app/backend
+          workingDir: {{ .Values.cluster.workingDir | quote }}
+          {{- if .Values.cluster.command }}
+          command:
+            {{- toYaml .Values.cluster.command | nindent 12 }}
+          {{- else }}
           command:
             - /app/backend/.venv/bin/python
             - -m
@@ -78,6 +82,11 @@ spec:
             - "10105"
             - --workers
             - {{ .Values.cluster.processes | quote }}
+          {{- end }}
+          {{- with .Values.cluster.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: api
               containerPort: 10105
@@ -122,6 +131,9 @@ spec:
             # Step-based Playwright runs in the worker process.
             - name: shm
               mountPath: /dev/shm
+            {{- with .Values.cluster.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -129,6 +141,9 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: {{ .Values.shmSize }}
+        {{- with .Values.cluster.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.cluster.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
