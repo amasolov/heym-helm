@@ -1,0 +1,9 @@
+platform: aks
+secrets:
+  existingSecret: heym-secret
+persistence:
+  accessModes: [ReadWriteMany]
+  storageClass: azurefile-csi
+sandbox:
+  podOverrides:
+    runtimeClassName: kata-vm-isolation

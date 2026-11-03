@@ -1,0 +1,61 @@
+{{- if and .Values.sandbox.enabled .Values.sandbox.networkPolicy.create }}
+# Sandbox pods are labelled app.kubernetes.io/managed-by=heym and
+# heym.run/network=none|egress by Heym itself. No ingress: Heym reaches them
+# through the API server's attach stream, which arrives via the kubelet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "heym.fullname" . }}-sandbox-no-ingress
+  labels:
+    {{- include "heym.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: heym
+  policyTypes:
+    - Ingress
+---
+# Offline sandboxes (Agent Python tools, the Code node without network, the
+# formatter): nothing, not even DNS. Heym runs a canary with this label before
+# the first offline sandbox and refuses them if it can connect anywhere.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "heym.fullname" . }}-sandbox-offline
+  labels:
+    {{- include "heym.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: heym
+      heym.run/network: none
+  policyTypes:
+    - Egress
+  egress: []
+---
+# Online sandboxes: cluster DNS and the internet, nothing in-cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "heym.fullname" . }}-sandbox-egress
+  labels:
+    {{- include "heym.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: heym
+      heym.run/network: egress
+  policyTypes:
+    - Egress
+  egress:
+    {{- if include "heym.sandboxAllowAllEgress" . }}
+    - {}
+    {{- else }}
+    {{- include "heym.dnsEgress" . | nindent 4 }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- include "heym.exceptCIDRs" . | nindent 14 }}
+    {{- end }}
+{{- end }}

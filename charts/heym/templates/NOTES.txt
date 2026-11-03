@@ -1,0 +1,20 @@
+Heym {{ .Chart.AppVersion }} is starting. Migrations run first, so the first start
+can take a minute.
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "heym.fullname" . }}
+
+Open {{ .Values.url }} and register the first account. Then lock registration
+down (ALLOW_REGISTER=false, or SSO's "Disable password sign-in").
+{{- if .Values.sandbox.enabled }}
+
+Sandboxes run as pods in {{ .Release.Namespace }}, labelled app.kubernetes.io/managed-by=heym.
+  - Offline sandboxes need a CNI that enforces NetworkPolicy; Heym checks.
+  - Set a kubelet podPidsLimit: pods have no per-pod PID limit of their own.
+{{- if has "ReadWriteOnce" .Values.persistence.accessModes }}
+  - The data claim is ReadWriteOnce, so sandboxes run on the backend's node.
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (not (include "heym.ciliumApiServerPolicy" .)) }}
+  - The backend has a NetworkPolicy: make sure it can reach the API server.
+    On Cilium with kube-proxy replacement set ciliumApiServerPolicy=true.
+{{- end }}
+{{- end }}

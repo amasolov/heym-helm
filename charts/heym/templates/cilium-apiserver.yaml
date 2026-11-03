@@ -1,0 +1,24 @@
+{{- if and .Values.sandbox.enabled (include "heym.ciliumApiServerPolicy" .) }}
+# The backend to the API server, to start sandbox pods. With kube-proxy
+# replacement Cilium rewrites the kubernetes Service to a node's :6443 before
+# policy is evaluated, and gives it the reserved kube-apiserver identity, which
+# an ipBlock rule does not match. Cilium ORs this with the backend's
+# NetworkPolicy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "heym.fullname" . }}-kube-apiserver
+  labels:
+    {{- include "heym.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "heym.selectorLabels" . | nindent 6 }}
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+{{- end }}

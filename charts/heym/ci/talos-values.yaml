@@ -1,0 +1,17 @@
+platform: talos
+image:
+  digest: sha256:6a34d24039f32df4c8f61d6f39df2fe2bc66534c5a420c5d16d197c3e60d878a
+secrets:
+  existingSecret: heym-secret
+networkPolicy:
+  enabled: true
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: envoy-internal
+      namespace: network
+      sectionName: https
+  hostnames: [heym.example.com]
+sandbox:
+  podOverrides:
+    runtimeClassName: gvisor

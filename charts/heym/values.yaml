@@ -1,0 +1,182 @@
+# Which platform this runs on. It only changes defaults that differ between
+# platforms; every one of them can still be set explicitly below.
+#   generic    any conformant cluster with a NetworkPolicy-enforcing CNI
+#   talos      Talos Linux with Cilium (kube-proxy replacement)
+#   openshift  OpenShift 4 (restricted-v2 SCC assigns the uid; OVN-Kubernetes)
+#   eks        Amazon EKS (VPC CNI network policy enabled, or Cilium/Calico)
+#   aks        Azure AKS with a network policy engine
+#   gke        Google GKE with Dataplane V2
+platform: generic
+
+image:
+  repository: ghcr.io/heymrun/heym
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # Pin it: sha256:... Sandbox pods run the exact image the backend runs, read
+  # from the backend's own pod spec, so a digest pins both.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Public URL Heym is served on. Used for FRONTEND_URL and CORS_ORIGINS.
+url: http://localhost:4017
+
+# Secrets Heym cannot start without. Generating them in the chart is
+# deliberately not offered: GitOps tools render charts without `lookup`, so a
+# generated ENCRYPTION_KEY would change on every sync and make every stored
+# credential unreadable.
+secrets:
+  # An existing Secret with keys SECRET_KEY, ENCRYPTION_KEY and DATABASE_URL.
+  # Recommended: create it with External Secrets, SOPS or Sealed Secrets.
+  existingSecret: ""
+  # Or values, written into a Secret this chart creates. Fine for a trial.
+  secretKey: ""
+  encryptionKey: ""
+  # postgresql+asyncpg://USER:PASSWORD@HOST:5432/heym. The database needs the
+  # pgvector extension. Install it as a superuser before the first start if
+  # Heym's role cannot create extensions.
+  databaseUrl: ""
+
+# Extra environment for the Heym container, as a map. See Heym's
+# ENVIRONMENT-VARIABLES.md. Examples: HEYM_ADMIN_EMAILS, TZ, ALLOW_REGISTER.
+env: {}
+# Extra environment from Secrets or ConfigMaps.
+envFrom: []
+
+# Uvicorn workers. Each is a full process with its own database pool, and the
+# image's default sizes from the node's cores, not the pod's limit.
+workers: 2
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 768Mi
+  limits:
+    memory: 3Gi
+
+# Pod-level security context. On platform=openshift, runAsUser, runAsGroup and
+# fsGroup are dropped so restricted-v2 can assign them.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+service:
+  type: ClusterIP
+  port: 4017
+  annotations: {}
+
+persistence:
+  # Holds Drive files, plugins and the Codex/OpenCode/skill workspaces. Sandbox
+  # pods mount one subPath of it per run, never the whole claim.
+  #   ReadWriteOnce  sandboxes are pinned to the backend's node
+  #   ReadWriteMany  sandboxes can run on any node
+  # ReadWriteOncePod does not work.
+  existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+# Chromium (step-based Playwright still runs in the backend) needs more
+# /dev/shm than the 64Mi default. Counted against the memory limit when used.
+shmSize: 1Gi
+
+sandbox:
+  # Run sandboxes as pods (HEYM_SANDBOX_BACKEND=kubernetes). Turning this off
+  # leaves Heym to its own defaults, which on Kubernetes means no sandboxes.
+  enabled: true
+  # Scheduling for sandbox pods only. Heym accepts nodeSelector, tolerations,
+  # runtimeClassName, imagePullSecrets and priorityClassName; anything else
+  # disables the backend. Example for gVisor:
+  #   podOverrides:
+  #     runtimeClassName: gvisor
+  podOverrides: {}
+  networkPolicy:
+    # NetworkPolicies for sandbox pods. Heym refuses offline sandboxes unless
+    # a canary pod proves the "none" policy is enforced, so keep this on and
+    # use a CNI that enforces NetworkPolicy.
+    create: true
+    # Egress for online sandboxes (skills, MCP stdio, Playwright, Codex,
+    # OpenCode, dependency installs): DNS plus the internet minus these.
+    exceptCIDRs:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 100.64.0.0/10
+      - 169.254.0.0/16
+      - 127.0.0.0/8
+    # Added to exceptCIDRs, for proxies, LANs or provider endpoints.
+    extraExceptCIDRs: []
+    # Where cluster DNS runs. Empty uses the platform default.
+    dns:
+      namespaceSelector: {}
+      podSelector: {}
+    # Allow all egress for online sandboxes. Only for CNIs where the DNS rule
+    # above cannot be made to work: OpenShift's OVN-Kubernetes timed out on
+    # every selective DNS allow in testing (heymrun/heym#832). Empty uses the
+    # platform default; offline sandboxes stay deny-all either way.
+    allowAllEgress: null
+
+# A NetworkPolicy for the backend itself. Off by default because what Heym
+# must reach (database, LLM gateway, identity provider) is site-specific; add
+# those as extraEgress.
+networkPolicy:
+  enabled: false
+  # Ingress to the backend's port, as NetworkPolicy peers. Empty allows all.
+  ingressFrom: []
+  # Egress to the internet minus private ranges, plus DNS and the API server.
+  allowInternet: true
+  # Where the API server's endpoints are (kubectl get endpointslices -n default
+  # -l kubernetes.io/service-name=kubernetes), so the backend can start
+  # sandboxes. Not needed with ciliumApiServerPolicy.
+  apiServerCIDRs: []
+  extraEgress: []
+
+# Cilium with kube-proxy replacement rewrites the API server Service to the
+# node's :6443 before policy is evaluated, and ipBlock rules cannot match it.
+# When the backend has a NetworkPolicy, it needs this to start sandboxes.
+# Empty follows the platform (on for talos when networkPolicy.enabled).
+ciliumApiServerPolicy: null
+
+serviceAccount:
+  # The backend's account. It gets a namespaced Role to manage sandbox pods,
+  # and its token is mounted; sandbox pods get no token.
+  create: true
+  name: ""
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: heym.example.com
+  tls: []
+
+httpRoute:
+  enabled: false
+  parentRefs: []
+  hostnames: []
+  annotations: {}
+
+# OpenShift Route. Empty follows the platform (on for openshift).
+route:
+  enabled: null
+  host: ""
+  annotations: {}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

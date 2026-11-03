@@ -1,0 +1,24 @@
+name: Release
+# Tag chart-X.Y.Z to publish oci://ghcr.io/amasolov/charts/heym:X.Y.Z.
+on:
+  push:
+    tags: ["chart-*"]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - name: Check the tag matches Chart.yaml
+        run: |
+          version="$(sed -n 's/^version: //p' charts/heym/Chart.yaml)"
+          test "${GITHUB_REF_NAME}" = "chart-${version}" || {
+            echo "tag ${GITHUB_REF_NAME} does not match Chart.yaml version ${version}"; exit 1; }
+      - name: Package and push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package charts/heym
+          helm push heym-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts

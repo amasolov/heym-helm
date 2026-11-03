@@ -1,0 +1,41 @@
+{{- if .Values.sandbox.enabled }}
+# What the backend's token can do: manage, attach to and read the logs of pods,
+# and read PVCs, in this namespace only. RBAC cannot restrict which pods it
+# creates, so keep nothing in this namespace that Heym itself should not see.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "heym.fullname" . }}-sandbox
+  labels:
+    {{- include "heym.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # The data claim's access mode decides whether sandboxes are pinned to the
+  # backend's node (ReadWriteOnce) or may spread out (ReadWriteMany).
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "heym.fullname" . }}-sandbox
+  labels:
+    {{- include "heym.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "heym.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "heym.fullname" . }}-sandbox
+{{- end }}

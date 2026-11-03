@@ -1,0 +1,4 @@
+secrets:
+  secretKey: ci-secret-key-0123456789abcdef0123456789abcdef
+  encryptionKey: ci-encryption-key-0123456789abcdef0123456789ab
+  databaseUrl: postgresql+asyncpg://heym:heym@postgres:5432/heym

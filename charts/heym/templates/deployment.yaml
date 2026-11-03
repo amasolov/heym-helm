@@ -1,0 +1,169 @@
+{{- include "heym.validPlatform" . -}}
+{{- if and (not .Values.secrets.existingSecret) (not (and .Values.secrets.secretKey .Values.secrets.encryptionKey .Values.secrets.databaseUrl)) -}}
+{{- fail "Set secrets.existingSecret, or all of secrets.secretKey, secrets.encryptionKey and secrets.databaseUrl" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heym.fullname" . }}
+  labels:
+    {{- include "heym.labels" . | nindent 4 }}
+spec:
+  # One replica: the data volume is usually ReadWriteOnce, and Heym's own
+  # scale-out is separate worker Deployments, not replicas of this one.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "heym.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "heym.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "heym.serviceAccountName" . }}
+      # The token starts sandbox pods (role.yaml). Sandbox pods get none.
+      automountServiceAccountToken: {{ .Values.sandbox.enabled }}
+      # Service links would inject POSTGRES_PORT=tcp://... for any Service
+      # named postgres in the namespace, colliding with Heym's own setting.
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- include "heym.podSecurityContext" . | nindent 8 }}
+      # Exactly one container: Heym finds the sandbox image by reading its own
+      # pod (by hostname, which must stay the pod name) and takes the image
+      # only when the pod has a single container.
+      containers:
+        - name: heym
+          image: {{ include "heym.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 4017
+              protocol: TCP
+          env:
+            - name: FRONTEND_URL
+              value: {{ .Values.url | quote }}
+            - name: CORS_ORIGINS
+              value: {{ .Values.url | quote }}
+            - name: BACKEND_WORKERS
+              value: {{ .Values.workers | quote }}
+            # The single-image default rewrites a localhost database host to
+            # the container's address, which is meaningless on Kubernetes.
+            - name: AUTO_REWRITE_LOCAL_DATABASE_HOST
+              value: "false"
+            # Absolute paths: relative ones resolve against /app/backend in
+            # the release image, not the volume.
+            - name: FILE_STORAGE_DIR
+              value: /app/data/files
+            - name: HEYM_PLUGINS_DIR
+              value: /app/data/plugins
+            # Read-only root filesystem. The entrypoint's `uv run` wants a
+            # cache under /app/.cache and would re-sync the venv into
+            # /app/backend; the image's venv is already complete.
+            - name: HOME
+              value: /tmp
+            - name: UV_CACHE_DIR
+              value: /tmp/uv-cache
+            - name: UV_NO_SYNC
+              value: "1"
+            {{- if .Values.sandbox.enabled }}
+            # Forced, not "auto": a missing token then fails closed with a
+            # clear error instead of looking for a Docker daemon.
+            - name: HEYM_SANDBOX_BACKEND
+              value: kubernetes
+            {{- with .Values.sandbox.podOverrides }}
+            - name: HEYM_SANDBOX_K8S_POD_OVERRIDES
+              value: {{ toJson . | quote }}
+            {{- end }}
+            # The default is the Compose layout (/app/app/...); the release
+            # image keeps the backend under /app/backend.
+            - name: HEYM_PYTHON_TOOL_RUNNER_PATH
+              value: /app/backend/app/services/python_tool_runner.py
+            {{- end }}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "heym.secretName" . }}
+            {{- with .Values.envFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # /api/health is answered by the backend through the frontend's
+          # proxy, so one probe covers both processes. Migrations run before
+          # either starts.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+            # vite preview bundles its config here at every start.
+            - name: vite-temp
+              mountPath: /app/frontend/node_modules/.vite-temp
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "heym.claimName" . }}
+        - name: tmp
+          emptyDir: {}
+        - name: vite-temp
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.shmSize }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

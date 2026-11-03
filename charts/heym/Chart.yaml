@@ -1,0 +1,43 @@
+apiVersion: v2
+name: heym
+description: >-
+  Community Helm chart for Heym, the AI workflow platform. Runs every sandbox
+  (Python tools, skills, Code node, MCP stdio, Playwright, Codex, OpenCode) as
+  its own restricted pod, with no Docker socket.
+type: application
+version: 0.1.0
+# Heym's release tag. The image is ghcr.io/heymrun/heym:<appVersion>.
+appVersion: "0.0.144"
+# The Kubernetes sandbox backend needs 1.30+ (heymrun/heym#848).
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/amasolov/heym-helm
+icon: https://raw.githubusercontent.com/heymrun/heym/main/frontend/public/fav.svg
+sources:
+  - https://github.com/amasolov/heym-helm
+  - https://github.com/heymrun/heym
+keywords:
+  - heym
+  - ai
+  - workflow
+  - agents
+  - llm
+  - sandbox
+maintainers:
+  - name: amasolov
+    url: https://github.com/amasolov
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/prerelease: "true"
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/links: |
+    - name: Heym
+      url: https://heym.run
+    - name: Kubernetes sandbox backend (upstream)
+      url: https://github.com/heymrun/heym/pull/848
+  artifacthub.io/images: |
+    - name: heym
+      image: ghcr.io/heymrun/heym:0.0.144
+  artifacthub.io/changes: |
+    - kind: added
+      description: First release, for Heym 0.0.144 and its Kubernetes sandbox backend

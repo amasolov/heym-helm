@@ -1,0 +1,8 @@
+platform: gke
+secrets:
+  existingSecret: heym-secret
+sandbox:
+  podOverrides:
+    runtimeClassName: gvisor
+    nodeSelector:
+      sandbox.gke.io/runtime: gvisor

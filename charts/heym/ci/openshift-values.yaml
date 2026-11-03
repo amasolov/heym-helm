@@ -1,0 +1,5 @@
+platform: openshift
+secrets:
+  existingSecret: heym-secret
+route:
+  host: heym.apps.example.com

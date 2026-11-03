@@ -1,0 +1,29 @@
+name: Lint
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - name: Lint and render every platform preset
+        run: |
+          set -euo pipefail
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz | tar xz
+          for values in charts/heym/ci/*-values.yaml; do
+            echo "::group::$values"
+            helm lint charts/heym -f "$values"
+            # Route (OpenShift) and CiliumNetworkPolicy have no schema the
+            # catalog resolves; everything else is validated strictly.
+            helm template heym charts/heym -n heym -f "$values" \
+              | ./kubeconform -strict -summary -kubernetes-version 1.30.0 \
+                  -skip Route,CiliumNetworkPolicy \
+                  -schema-location default \
+                  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            echo "::endgroup::"
+          done
