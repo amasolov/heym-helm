@@ -5,7 +5,7 @@ description: >-
   (Python tools, skills, Code node, MCP stdio, Playwright, Codex, OpenCode) as
   its own restricted pod, with no Docker socket.
 type: application
-version: 0.1.0
+version: 0.1.1
 # Heym's release tag. The image is ghcr.io/heymrun/heym:<appVersion>.
 appVersion: "0.0.144"
 # The Kubernetes sandbox backend needs 1.30+ (heymrun/heym#848).
@@ -40,4 +40,8 @@ annotations:
       image: ghcr.io/heymrun/heym:0.0.144
   artifacthub.io/changes: |
     - kind: added
-      description: First release, for Heym 0.0.144 and its Kubernetes sandbox backend
+      description: nameOverride and fullnameOverride, for moving an existing install onto the chart
+    - kind: added
+      description: annotations on the Deployment
+    - kind: changed
+      description: cni setting replaces the talos platform (Cilium API-server rule)

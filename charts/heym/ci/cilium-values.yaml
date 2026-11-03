@@ -1,5 +1,10 @@
 cni: cilium
+fullnameOverride: heym-app
+annotations:
+  reloader.stakater.com/auto: "true"
 image:
+  # Digest in the tag (the form Renovate maintains) together with image.digest.
+  tag: 0.0.144@sha256:6a34d24039f32df4c8f61d6f39df2fe2bc66534c5a420c5d16d197c3e60d878a
   digest: sha256:6a34d24039f32df4c8f61d6f39df2fe2bc66534c5a420c5d16d197c3e60d878a
 secrets:
   existingSecret: heym-secret

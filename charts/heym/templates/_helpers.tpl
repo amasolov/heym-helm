@@ -1,5 +1,7 @@
 {{- define "heym.fullname" -}}
-{{- if contains .Chart.Name .Release.Name -}}
+{{- if .Values.fullnameOverride -}}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else if contains .Chart.Name .Release.Name -}}
 {{- .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
 {{- printf "%s-%s" .Release.Name .Chart.Name | trunc 63 | trimSuffix "-" -}}
@@ -9,7 +11,7 @@
 {{/* Selector labels. Sandbox pods never carry app.kubernetes.io/name, so the
 backend's selectors and NetworkPolicy cannot match them. */}}
 {{- define "heym.selectorLabels" -}}
-app.kubernetes.io/name: {{ .Chart.Name }}
+app.kubernetes.io/name: {{ default .Chart.Name .Values.nameOverride }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
@@ -38,7 +40,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 
 {{- define "heym.image" -}}
 {{- $tag := default .Chart.AppVersion .Values.image.tag -}}
-{{- if .Values.image.digest -}}
+{{- /* A digest in the tag (version@sha256:...) wins over image.digest. */ -}}
+{{- if and .Values.image.digest (not (contains "@" $tag)) -}}
 {{- printf "%s:%s@%s" .Values.image.repository $tag .Values.image.digest -}}
 {{- else -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}

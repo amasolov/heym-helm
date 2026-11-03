@@ -11,6 +11,9 @@
       "description": "Only cilium changes anything today; leave empty for other CNIs.",
       "enum": ["", "cilium"]
     },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string", "maxLength": 63 },
+    "annotations": { "type": "object" },
     "image": {
       "type": "object",
       "properties": {

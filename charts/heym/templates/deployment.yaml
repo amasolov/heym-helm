@@ -8,6 +8,10 @@ metadata:
   name: {{ include "heym.fullname" . }}
   labels:
     {{- include "heym.labels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   # One replica: the data volume is usually ReadWriteOnce, and Heym's own
   # scale-out is separate worker Deployments, not replicas of this one.

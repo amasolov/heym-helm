@@ -7,6 +7,13 @@
 #   gke        Google GKE with Dataplane V2
 platform: generic
 
+# Object names default to the release name (or <release>-heym). Override to
+# move an existing install onto this chart without colliding with its objects:
+# a Deployment's selector is immutable, so taking over another chart's
+# Deployment in place fails.
+nameOverride: ""
+fullnameOverride: ""
+
 # The CNI, where it changes what the chart renders. Separate from platform:
 # Cilium runs on many platforms, and most platforms offer several CNIs.
 #   ""      nothing CNI-specific
@@ -17,7 +24,8 @@ cni: ""
 
 image:
   repository: ghcr.io/heymrun/heym
-  # Defaults to the chart's appVersion.
+  # Defaults to the chart's appVersion. "0.0.144@sha256:..." also works, the
+  # form Renovate keeps up to date.
   tag: ""
   # Pin it: sha256:... Sandbox pods run the exact image the backend runs, read
   # from the backend's own pod spec, so a digest pins both.
@@ -73,6 +81,8 @@ podSecurityContext:
   seccompProfile:
     type: RuntimeDefault
 
+# Annotations on the Deployment itself (e.g. reloader.stakater.com/auto).
+annotations: {}
 podAnnotations: {}
 podLabels: {}
 nodeSelector: {}
