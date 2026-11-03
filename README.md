@@ -77,9 +77,10 @@ Talos needs no platform preset, but its defaults matter:
   extension and a `RuntimeClass`, then set
   `sandbox.podOverrides.runtimeClassName`.
 
-**Status:** Heym's sandbox backend was tested on Talos 1.14 with Cilium, using upstream's smoke test;
-11/12 checks pass, the twelfth is
-[a known upstream bug](https://github.com/heymrun/heym/issues/832). Tested on
+**Status:** this chart runs in production on Talos 1.14 with Cilium (`cni: cilium`).
+Upstream's sandbox smoke test passes 12/12 there; the agent-skill check can
+fail intermittently because of
+[an upstream attach race](https://github.com/heymrun/heym/issues/832). Tested on
 OpenShift 4.22 with equivalent manifests. Rendered but untested on EKS, AKS
 and GKE; reports welcome.
 
@@ -102,6 +103,30 @@ nothing else in Heym's namespace.
 
 With a `ReadWriteOnce` data volume, sandboxes run on the backend's node. Use
 `ReadWriteMany` to spread them across nodes.
+
+## Moving an existing install onto this chart
+
+A Deployment's selector is immutable. If Heym already runs from another chart
+(app-template, say) or from plain manifests, the chart can't take over the
+existing Deployment in place. Set `fullnameOverride` to a new name, such as
+`heym-app`, so nothing collides:
+
+- **Plain `helm upgrade` on the same release:** Helm creates the new objects
+  and deletes the old ones in one step.
+- **Flux:** when a HelmRelease's chart name changes, Flux uninstalls the old
+  release and installs the new one. The new name still keeps the new objects
+  clear of anything the old release or your own manifests own.
+
+Either way:
+
+- **Keep the data volume outside the release** (`persistence.existingClaim`),
+  so neither path can delete it. With `ReadWriteOnce`, expect a short outage
+  while the volume moves to the new pod.
+- **Keep your existing NetworkPolicies until the chart's are in place.**
+  Policies are additive and the new names differ, so leaving the old ones
+  during the switch means the pods are never unfenced. Remove them afterwards.
+- **Update anything that targets the old name,** such as a VPA, a
+  ServiceMonitor, or a Reloader or PDB selector.
 
 ## Values
 
