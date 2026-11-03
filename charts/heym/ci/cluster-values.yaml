@@ -1,0 +1,13 @@
+# Load distribution: two workers, with the backend and worker policies and the
+# Cilium API-server rule for both.
+cni: cilium
+url: https://heym.example.com
+secrets:
+  existingSecret: heym-secrets
+cluster:
+  enabled: true
+  replicas: 2
+  env:
+    HEYM_DB_POOL_SIZE: "3"
+networkPolicy:
+  enabled: true

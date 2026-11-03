@@ -290,6 +290,120 @@ class ChartTests(unittest.TestCase):
         render({}, success=False)  # External database configuration is required.
 
 
+def by_kind(docs, kind):
+    return [d for d in docs if d["kind"] == kind]
+
+
+def env_map(container):
+    return {e["name"]: e for e in container["env"]}
+
+
+CLUSTER = dict(
+    secrets=dict(generate=True, existingSecrets=["heym-db"]),
+    cni="cilium",
+    networkPolicy=dict(enabled=True),
+    cluster=dict(enabled=True, replicas=2, env={"HEYM_DB_POOL_SIZE": "3"}),
+)
+
+
+class ClusterTests(unittest.TestCase):
+    def test_disabled_by_default_renders_no_workers_or_cluster_env(self):
+        docs = render(dict(secrets=dict(existingSecret="test")))
+        self.assertFalse(by_kind(docs, "StatefulSet"))
+        env = env_map(deployment(docs)["spec"]["template"]["spec"]["containers"][0])
+        self.assertNotIn("HEYM_CLUSTER_ENABLED", env)
+        self.assertNotIn("HEYM_INSTANCE_ROLE", env)
+
+    def test_workers_get_stable_unique_ids_and_never_migrate(self):
+        docs = render(CLUSTER)
+        sts = by_kind(docs, "StatefulSet")[0]
+        pod = sts["spec"]["template"]["spec"]
+        self.assertEqual(sts["spec"]["replicas"], 2)
+        self.assertEqual(len(pod["containers"]), 1)  # sandbox image discovery
+        worker = pod["containers"][0]
+        env = env_map(worker)
+        self.assertEqual(env["HEYM_INSTANCE_ROLE"]["value"], "worker")
+        self.assertEqual(env["HEYM_CLUSTER_ENABLED"]["value"], "true")
+        for key in ("HEYM_INSTANCE_ID", "HEYM_INSTANCE_NAME"):
+            self.assertEqual(
+                env[key]["valueFrom"]["fieldRef"]["fieldPath"], "metadata.name"
+            )
+        self.assertEqual(env["HEYM_DB_POOL_SIZE"]["value"], "3")
+        self.assertEqual(env["HEYM_SANDBOX_BACKEND"]["value"], "kubernetes")
+        # The image entrypoint would run alembic; workers start uvicorn directly.
+        self.assertIn("uvicorn", worker["command"])
+        self.assertNotIn("alembic", " ".join(worker["command"]))
+        main = env_map(deployment(docs)["spec"]["template"]["spec"]["containers"][0])
+        self.assertEqual(main["HEYM_INSTANCE_ROLE"]["value"], "main")
+        self.assertNotIn("HEYM_INSTANCE_ID", main)
+        self.assertNotIn("HEYM_DB_POOL_SIZE", main)
+
+    def test_workers_share_secret_sources_and_service_account(self):
+        docs = render(CLUSTER)
+        main = deployment(docs)["spec"]["template"]["spec"]
+        worker = by_kind(docs, "StatefulSet")[0]["spec"]["template"]["spec"]
+        self.assertEqual(
+            main["containers"][0]["envFrom"], worker["containers"][0]["envFrom"]
+        )
+        self.assertEqual(main["serviceAccountName"], worker["serviceAccountName"])
+        self.assertTrue(worker["automountServiceAccountToken"])
+
+    def test_workspace_is_a_claim_per_worker_not_an_emptydir(self):
+        sts = by_kind(render(CLUSTER), "StatefulSet")[0]
+        mounts = {
+            m["mountPath"]: m["name"]
+            for m in sts["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
+        }
+        claims = [t["metadata"]["name"] for t in sts["spec"]["volumeClaimTemplates"]]
+        self.assertIn(mounts["/app/data"], claims)
+        volumes = {v["name"] for v in sts["spec"]["template"]["spec"]["volumes"]}
+        self.assertNotIn(mounts["/app/data"], volumes)
+
+    def test_service_and_backend_policy_never_select_workers(self):
+        docs = render(CLUSTER)
+        labels = by_kind(docs, "StatefulSet")[0]["spec"]["template"]["metadata"][
+            "labels"
+        ]
+        service = by_kind(docs, "Service")[0]["spec"]["selector"]
+        self.assertFalse(service.items() <= labels.items())
+        policies = {p["metadata"]["name"]: p["spec"] for p in by_kind(docs, "NetworkPolicy")}
+        backend = policies["heym"]["podSelector"]["matchLabels"]
+        self.assertFalse(backend.items() <= labels.items())
+        worker = policies["heym-worker"]
+        self.assertTrue(worker["podSelector"]["matchLabels"].items() <= labels.items())
+        self.assertEqual(worker["ingress"], [])
+        self.assertEqual(worker["egress"], policies["heym"]["egress"])
+
+    def test_cilium_api_server_rule_covers_workers(self):
+        docs = render(CLUSTER)
+        labels = by_kind(docs, "StatefulSet")[0]["spec"]["template"]["metadata"][
+            "labels"
+        ]
+        selectors = [
+            c["spec"]["endpointSelector"]["matchLabels"]
+            for c in by_kind(docs, "CiliumNetworkPolicy")
+        ]
+        self.assertTrue(any(s.items() <= labels.items() for s in selectors))
+
+    def test_reserved_cluster_env_and_overlapping_labels_are_rejected(self):
+        for key in ("HEYM_INSTANCE_ID", "HEYM_INSTANCE_ROLE", "HEYM_CLUSTER_ENABLED"):
+            for where in ("env", "cluster"):
+                values = copy.deepcopy(CLUSTER)
+                if where == "env":
+                    values["env"] = {key: "x"}
+                else:
+                    values["cluster"]["env"] = {key: "x"}
+                error = render(values, success=False)
+                self.assertIn(key, error)
+        values = copy.deepcopy(CLUSTER)
+        values["selectorLabels"] = {"app": "heym"}
+        values["cluster"]["podLabels"] = {"app": "heym"}
+        self.assertIn("Service would route to workers", render(values, success=False))
+        values = copy.deepcopy(CLUSTER)
+        values["cluster"]["podLabels"] = {"heym.run/network": "egress"}
+        self.assertIn("sandbox", render(values, success=False))
+
+
 class KeyGenerationTests(unittest.TestCase):
     def test_keys_are_created_once_and_never_rotated(self):
         stored = {}

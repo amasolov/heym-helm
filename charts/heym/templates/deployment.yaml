@@ -1,6 +1,7 @@
 {{- include "heym.validPlatform" . -}}
 {{- include "heym.validateSecrets" . -}}
 {{- include "heym.validateConfiguration" . -}}
+{{- include "heym.validateCluster" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -71,24 +72,10 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           env:
-            {{- include "heym.environment" . | nindent 12 }}
-          {{- if or (include "heym.generateKeys" .) .Values.secrets.existingSecret (include "heym.inlineSecret" .) .Values.secrets.existingSecrets .Values.envFrom }}
+            {{- include "heym.environment" (dict "root" . "role" "main") | nindent 12 }}
+          {{- with include "heym.envFrom" . | trim }}
           envFrom:
-            {{- if include "heym.generateKeys" . }}
-            - secretRef:
-                name: {{ include "heym.fullname" . }}-generated-keys
-            {{- end }}
-            {{- if or .Values.secrets.existingSecret (include "heym.inlineSecret" .) }}
-            - secretRef:
-                name: {{ include "heym.secretName" . }}
-            {{- end }}
-            {{- range .Values.secrets.existingSecrets }}
-            - secretRef:
-                name: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.envFrom }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- . | nindent 12 }}
           {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
