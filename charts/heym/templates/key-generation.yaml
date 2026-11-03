@@ -96,7 +96,7 @@ spec:
       containers:
         - name: generate-keys
           image: {{ include "heym.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ include "heym.imagePullPolicy" . }}
           command: [/app/backend/.venv/bin/python, -c]
           args:
             - |

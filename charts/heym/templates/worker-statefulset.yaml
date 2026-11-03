@@ -63,7 +63,7 @@ spec:
       containers:
         - name: heym
           image: {{ include "heym.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ include "heym.imagePullPolicy" . }}
           # The API alone, without the image entrypoint: that runs
           # `alembic upgrade head` on every start, and only main migrates.
           workingDir: {{ .Values.cluster.workingDir | quote }}

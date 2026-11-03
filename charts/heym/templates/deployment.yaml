@@ -52,7 +52,7 @@ spec:
       containers:
         - name: heym
           image: {{ include "heym.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ include "heym.imagePullPolicy" . }}
           {{- with .Values.command }}
           command:
             {{- toYaml . | nindent 12 }}

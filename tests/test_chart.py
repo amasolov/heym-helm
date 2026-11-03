@@ -64,6 +64,42 @@ def deployment(docs):
 
 
 class ChartTests(unittest.TestCase):
+    def test_image_selection_is_consistent_for_main_workers_and_key_hook(self):
+        digest = "sha256:" + "a" * 64
+        app_version = yaml.safe_load((ROOT / "charts/heym/Chart.yaml").read_text())[
+            "appVersion"
+        ]
+        cases = [
+            ({}, "latest", "Always"),
+            ({"tag": "0.0.145"}, "0.0.145", "IfNotPresent"),
+            ({"tag": "", "pullPolicy": ""}, app_version, "IfNotPresent"),
+            ({"tag": "0.0.145", "digest": digest}, "0.0.145@" + digest, "IfNotPresent"),
+            ({"digest": digest}, "latest@" + digest, "IfNotPresent"),
+            ({"tag": "0.0.145@" + digest}, "0.0.145@" + digest, "IfNotPresent"),
+            ({"pullPolicy": "Never"}, "latest", "Never"),
+            ({"tag": "0.0.145", "pullPolicy": "Always"}, "0.0.145", "Always"),
+        ]
+        for image, reference, policy in cases:
+            with self.subTest(image=image):
+                docs = render(
+                    dict(
+                        image=image,
+                        secrets=dict(existingSecrets=["database"]),
+                        cluster=dict(enabled=True),
+                    )
+                )
+                containers = [
+                    d["spec"]["template"]["spec"]["containers"][0]
+                    for d in docs
+                    if d["kind"] in ("Deployment", "StatefulSet", "Job")
+                ]
+                self.assertEqual(len(containers), 3)
+                for container in containers:
+                    self.assertEqual(
+                        container["image"], "ghcr.io/heymrun/heym:" + reference
+                    )
+                    self.assertEqual(container["imagePullPolicy"], policy)
+
     def test_selector_overrides_are_rejected_but_identical_labels_are_deduplicated(
         self,
     ):
