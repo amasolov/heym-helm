@@ -5,7 +5,7 @@ description: >-
   (Python tools, skills, Code node, MCP stdio, Playwright, Codex, OpenCode) as
   its own restricted pod, with no Docker socket.
 type: application
-version: 0.3.0
+version: 0.3.1
 # Heym's release tag. The image is ghcr.io/heymrun/heym:<appVersion>.
 appVersion: "0.0.144"
 # The Kubernetes sandbox backend needs 1.30+ (heymrun/heym#848).
@@ -39,6 +39,8 @@ annotations:
     - name: heym
       image: ghcr.io/heymrun/heym:0.0.144
   artifacthub.io/changes: |
+    - kind: added
+      description: Worker-specific startup and mounts for corporate trust and compatibility patches
     - kind: added
       description: Load-distribution workers (cluster.enabled), a StatefulSet with a stable instance ID and its own workspace claim per worker
     - kind: added

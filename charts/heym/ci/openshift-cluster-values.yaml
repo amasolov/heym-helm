@@ -1,0 +1,16 @@
+platform: openshift
+secrets:
+  generate: false
+  existingSecrets: [heym-runtime, heym-database]
+cluster:
+  enabled: true
+  processes: 1
+  command: [/bin/bash, /opt/heym-code/worker-start.sh]
+  extraVolumes:
+    - name: code
+      configMap:
+        name: heym-code
+  extraVolumeMounts:
+    - name: code
+      mountPath: /opt/heym-code
+      readOnly: true

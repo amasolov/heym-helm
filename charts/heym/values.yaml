@@ -106,6 +106,14 @@ cluster:
   replicas: 2
   # Uvicorn processes per worker.
   processes: 2
+  # Worker-specific startup and mounts. Backend overrides are not inherited:
+  # its command may migrate the database or start a frontend. Custom worker
+  # commands must avoid migrations and serve health on port 10105.
+  command: []
+  args: []
+  workingDir: /app/backend
+  extraVolumes: []
+  extraVolumeMounts: []
   # Extra environment for workers only, merged over env (e.g. smaller
   # HEYM_DB_POOL_SIZE: every worker process holds its own pool).
   env: {}

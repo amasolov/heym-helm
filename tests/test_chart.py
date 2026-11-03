@@ -338,6 +338,41 @@ class ClusterTests(unittest.TestCase):
         self.assertNotIn("HEYM_INSTANCE_ID", main)
         self.assertNotIn("HEYM_DB_POOL_SIZE", main)
 
+    def test_openshift_workers_support_trust_startup_without_backend_command(self):
+        values = copy.deepcopy(CLUSTER)
+        values.update(platform="openshift", cni="", command=["backend-only"])
+        values["cluster"].update(
+            command=["/bin/bash", "/opt/runtime/worker.sh"],
+            args=["--example"],
+            workingDir="/app/backend",
+            extraVolumes=[dict(name="trust", configMap=dict(name="corporate-ca"))],
+            extraVolumeMounts=[
+                dict(name="trust", mountPath="/opt/runtime", readOnly=True)
+            ],
+        )
+        docs = render(values)
+        pod = by_kind(docs, "StatefulSet")[0]["spec"]["template"]["spec"]
+        worker = pod["containers"][0]
+        self.assertEqual(worker["command"], values["cluster"]["command"])
+        self.assertEqual(worker["args"], ["--example"])
+        self.assertIn(values["cluster"]["extraVolumes"][0], pod["volumes"])
+        self.assertIn(values["cluster"]["extraVolumeMounts"][0], worker["volumeMounts"])
+        for field in ("runAsUser", "runAsGroup", "fsGroup"):
+            self.assertNotIn(field, pod["securityContext"])
+        self.assertTrue(worker["securityContext"]["readOnlyRootFilesystem"])
+        self.assertFalse(worker["securityContext"]["allowPrivilegeEscalation"])
+        policy = next(
+            p
+            for p in by_kind(docs, "NetworkPolicy")
+            if p["metadata"]["name"] == "heym-worker"
+        )
+        dns = policy["spec"]["egress"][0]
+        self.assertEqual(
+            dns["to"][0]["namespaceSelector"]["matchLabels"],
+            {"kubernetes.io/metadata.name": "openshift-dns"},
+        )
+        self.assertIn(dict(port=5353, protocol="UDP"), dns["ports"])
+
     def test_workers_share_secret_sources_and_service_account(self):
         docs = render(CLUSTER)
         main = deployment(docs)["spec"]["template"]["spec"]
@@ -366,7 +401,9 @@ class ClusterTests(unittest.TestCase):
         ]
         service = by_kind(docs, "Service")[0]["spec"]["selector"]
         self.assertFalse(service.items() <= labels.items())
-        policies = {p["metadata"]["name"]: p["spec"] for p in by_kind(docs, "NetworkPolicy")}
+        policies = {
+            p["metadata"]["name"]: p["spec"] for p in by_kind(docs, "NetworkPolicy")
+        }
         backend = policies["heym"]["podSelector"]["matchLabels"]
         self.assertFalse(backend.items() <= labels.items())
         worker = policies["heym-worker"]
