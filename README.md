@@ -125,10 +125,5 @@ The main ones; see [values.yaml](charts/heym/values.yaml) for all of them.
 1. Bump `version` (and `appVersion` for a new Heym) in `Chart.yaml`.
 2. Tag `chart-<version>`. CI pushes `oci://ghcr.io/amasolov/charts/heym`.
 3. Artifact Hub reads the repository metadata from the OCI artifact
-   `ghcr.io/amasolov/charts/heym:artifacthub.io`:
-
-   ```bash
-   oras push ghcr.io/amasolov/charts/heym:artifacthub.io \
-     --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
-     artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
-   ```
+   `ghcr.io/amasolov/charts/heym:artifacthub.io`. The `Artifact Hub metadata`
+   workflow pushes it whenever `artifacthub-repo.yml` changes.
