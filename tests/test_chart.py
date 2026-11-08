@@ -366,9 +366,17 @@ class ClusterTests(unittest.TestCase):
             )
         self.assertEqual(env["HEYM_DB_POOL_SIZE"]["value"], "3")
         self.assertEqual(env["HEYM_SANDBOX_BACKEND"]["value"], "kubernetes")
-        # The image entrypoint would run alembic; workers start uvicorn directly.
-        self.assertIn("uvicorn", worker["command"])
-        self.assertNotIn("alembic", " ".join(worker["command"]))
+        # The image entrypoint would run alembic; workers start uvicorn directly,
+        # after the key check the entrypoint also runs (Heym 0.0.149+).
+        command = " ".join(worker["command"])
+        self.assertIn("uvicorn", command)
+        self.assertNotIn("alembic", command)
+        check, start = command.split("fi;")
+        # Guarded: images before 0.0.149 have no app.key_check.
+        self.assertIn("[ -f /app/backend/app/key_check.py ]", check)
+        self.assertIn("-m app.key_check || exit 1", check)
+        self.assertIn("exec /app/backend/.venv/bin/python -m uvicorn", start)
+        self.assertIn("--workers 2", start)
         main = env_map(deployment(docs)["spec"]["template"]["spec"]["containers"][0])
         self.assertEqual(main["HEYM_INSTANCE_ROLE"]["value"], "main")
         self.assertNotIn("HEYM_INSTANCE_ID", main)
@@ -483,6 +491,105 @@ class ClusterTests(unittest.TestCase):
 
 
 class KeyGenerationTests(unittest.TestCase):
+    def test_kubernetes_credentials_are_off_by_default(self):
+        docs = render(CLUSTER)
+        self.assertFalse(
+            [r for r in by_kind(docs, "Role") if r["metadata"]["name"].endswith("-credentials")]
+        )
+        for pod in (deployment(docs), by_kind(docs, "StatefulSet")[0]):
+            env = env_map(pod["spec"]["template"]["spec"]["containers"][0])
+            self.assertNotIn("HEYM_K8S_CREDENTIALS", env)
+
+    def test_kubernetes_credentials_role_env_and_token_for_main_and_workers(self):
+        values = copy.deepcopy(CLUSTER)
+        values["kubernetesCredentials"] = dict(enabled=True)
+        # Without sandboxes, the token and API-server rule are still needed.
+        values["sandbox"] = dict(enabled=False)
+        docs = render(values)
+        role = next(r for r in by_kind(docs, "Role") if r["metadata"]["name"] == "heym-credentials")
+        self.assertEqual(role["metadata"]["namespace"], "heym")
+        self.assertEqual(
+            role["rules"],
+            [dict(apiGroups=[""], resources=["secrets"], verbs=["get", "list", "watch"])],
+        )
+        binding = next(
+            b for b in by_kind(docs, "RoleBinding") if b["metadata"]["name"] == "heym-credentials"
+        )
+        self.assertEqual(
+            binding["subjects"], [dict(kind="ServiceAccount", name="heym", namespace="heym")]
+        )
+        for pod in (deployment(docs), by_kind(docs, "StatefulSet")[0]):
+            spec = pod["spec"]["template"]["spec"]
+            self.assertTrue(spec["automountServiceAccountToken"])
+            self.assertEqual(spec["serviceAccountName"], "heym")
+            env = env_map(spec["containers"][0])
+            self.assertEqual(env["HEYM_K8S_CREDENTIALS"]["value"], "true")
+            self.assertNotIn("HEYM_K8S_CREDENTIALS_NAMESPACE", env)
+        # No sandbox Role, but both API-server policies remain (cni: cilium).
+        self.assertFalse(
+            [r for r in by_kind(docs, "Role") if r["metadata"]["name"] == "heym-sandbox"]
+        )
+        self.assertEqual(
+            sorted(p["metadata"]["name"] for p in by_kind(docs, "CiliumNetworkPolicy")),
+            ["heym-kube-apiserver", "heym-worker-kube-apiserver"],
+        )
+
+    def test_kubernetes_credentials_in_another_namespace(self):
+        values = dict(
+            secrets=dict(existingSecret="test"),
+            kubernetesCredentials=dict(enabled=True, namespace="heym-credentials"),
+        )
+        docs = render(values)
+        for kind in ("Role", "RoleBinding"):
+            obj = next(o for o in by_kind(docs, kind) if o["metadata"]["name"] == "heym-credentials")
+            self.assertEqual(obj["metadata"]["namespace"], "heym-credentials")
+        binding = next(
+            b for b in by_kind(docs, "RoleBinding") if b["metadata"]["name"] == "heym-credentials"
+        )
+        self.assertEqual(binding["subjects"][0]["namespace"], "heym")
+        env = env_map(deployment(docs)["spec"]["template"]["spec"]["containers"][0])
+        self.assertEqual(env["HEYM_K8S_CREDENTIALS_NAMESPACE"]["value"], "heym-credentials")
+
+    def test_kubernetes_credentials_refuse_chart_owned_env_and_subprocess_sandboxes(self):
+        base = dict(secrets=dict(existingSecret="test"), kubernetesCredentials=dict(enabled=True))
+        for env, worker_env, expected in (
+            ({"HEYM_K8S_CREDENTIALS": "true"}, {}, "set by the chart"),
+            ({}, {"HEYM_K8S_CREDENTIALS_NAMESPACE": "x"}, "set by the chart"),
+            ({"HEYM_MCP_STDIO_SANDBOX": " Subprocess "}, {}, "HEYM_MCP_STDIO_SANDBOX=subprocess"),
+            ({}, {"HEYM_PYTHON_TOOL_SANDBOX": "subprocess"}, "HEYM_PYTHON_TOOL_SANDBOX=subprocess"),
+        ):
+            with self.subTest(env=env, worker_env=worker_env):
+                values = copy.deepcopy(base)
+                values["env"] = env
+                values["cluster"] = dict(enabled=True, env=worker_env)
+                self.assertIn(expected, render(values, success=False))
+        # Without the feature, a subprocess sandbox is the operator's choice.
+        render(dict(secrets=dict(existingSecret="test"), env={"HEYM_MCP_STDIO_SANDBOX": "subprocess"}))
+
+    def test_key_refs_can_be_optional_for_rotation_keys(self):
+        docs = render(
+            dict(
+                secrets=dict(
+                    existingSecret="test",
+                    keyRefs=dict(
+                        ENCRYPTION_KEY=dict(name="new-key", key="key"),
+                        ENCRYPTION_KEYS_EXTRA=dict(name="old-key", key="key", optional=True),
+                    ),
+                ),
+                cluster=dict(enabled=True),
+            )
+        )
+        for pod in (deployment(docs), by_kind(docs, "StatefulSet")[0]):
+            env = env_map(pod["spec"]["template"]["spec"]["containers"][0])
+            self.assertEqual(
+                env["ENCRYPTION_KEY"]["valueFrom"]["secretKeyRef"],
+                dict(name="new-key", key="key", optional=False),
+            )
+            self.assertEqual(
+                env["ENCRYPTION_KEYS_EXTRA"]["valueFrom"]["secretKeyRef"],
+                dict(name="old-key", key="key", optional=True),
+            )
+
     def test_keys_are_created_once_and_never_rotated(self):
         stored = {}
         writes = []

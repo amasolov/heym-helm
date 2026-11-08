@@ -45,8 +45,9 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "heym.serviceAccountName" . }}
-      # Workers start sandbox pods too, with the backend's Role.
-      automountServiceAccountToken: {{ .Values.sandbox.enabled }}
+      # Workers start sandbox pods and watch credential Secrets too, with the
+      # backend's Roles.
+      automountServiceAccountToken: {{ include "heym.needsApiServer" . | eq "true" }}
       enableServiceLinks: false
       terminationGracePeriodSeconds: {{ .Values.cluster.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
@@ -66,22 +67,25 @@ spec:
           imagePullPolicy: {{ include "heym.imagePullPolicy" . }}
           # The API alone, without the image entrypoint: that runs
           # `alembic upgrade head` on every start, and only main migrates.
+          # It keeps the entrypoint's other step, Heym's ENCRYPTION_KEY check
+          # (0.0.149+): it refuses keys that can't read the database, or one a
+          # completed rotation retired, before uvicorn starts, where a failed
+          # startup would only be respawned. Until main has written the check
+          # value, a worker starts without checking. Images before 0.0.149
+          # have no key check, so a pinned older image skips it.
           workingDir: {{ .Values.cluster.workingDir | quote }}
           {{- if .Values.cluster.command }}
           command:
             {{- toYaml .Values.cluster.command | nindent 12 }}
           {{- else }}
           command:
-            - /app/backend/.venv/bin/python
-            - -m
-            - uvicorn
-            - app.main:app
-            - --host
-            - 0.0.0.0
-            - --port
-            - "10105"
-            - --workers
-            - {{ .Values.cluster.processes | quote }}
+            - /bin/sh
+            - -c
+            - >-
+              if [ -f /app/backend/app/key_check.py ]; then
+              /app/backend/.venv/bin/python -m app.key_check || exit 1; fi;
+              exec /app/backend/.venv/bin/python -m uvicorn app.main:app
+              --host 0.0.0.0 --port 10105 --workers {{ int .Values.cluster.processes }}
           {{- end }}
           {{- with .Values.cluster.args }}
           args:

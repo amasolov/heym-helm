@@ -29,6 +29,37 @@
 {{- end -}}
 {{- end -}}
 
+{{/* Credentials from Secrets. The chart owns both switches, and refuses at
+render time what Heym would refuse at startup: a subprocess sandbox would run
+user code next to the token that reads Secrets. */}}
+{{- define "heym.validateKubernetesCredentials" -}}
+{{- if .Values.kubernetesCredentials.enabled -}}
+{{- range $key := list "HEYM_K8S_CREDENTIALS" "HEYM_K8S_CREDENTIALS_NAMESPACE" -}}
+{{- if or (hasKey $.Values.env $key) (hasKey $.Values.cluster.env $key) -}}
+{{- fail (printf "%s is set by the chart; use kubernetesCredentials instead of env and cluster.env" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- range $key := list "HEYM_PYTHON_TOOL_SANDBOX" "HEYM_PLAYWRIGHT_SANDBOX" "HEYM_MCP_STDIO_SANDBOX" -}}
+{{- range $env := list $.Values.env $.Values.cluster.env -}}
+{{- if eq (lower (trim (toString (get $env $key)))) "subprocess" -}}
+{{- fail (printf "kubernetesCredentials.enabled refuses %s=subprocess: user code would run next to the ServiceAccount token that reads Secrets" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The backend and workers talk to the API server for sandbox pods, for
+Secret-backed credentials, or both. Gates the token mount, the API-server
+egress rules and the Cilium API-server policy. */}}
+{{- define "heym.needsApiServer" -}}
+{{- if or .Values.sandbox.enabled .Values.kubernetesCredentials.enabled }}true{{ end -}}
+{{- end -}}
+
+{{- define "heym.credentialsNamespace" -}}
+{{- default .Release.Namespace .Values.kubernetesCredentials.namespace -}}
+{{- end -}}
+
 {{- define "heym.podLabels" -}}
 {{- $selector := include "heym.selectorLabels" . | fromYaml -}}
 {{- toYaml (mergeOverwrite (deepCopy $selector) .Values.podLabels) -}}
@@ -87,8 +118,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
         except:
           {{- include "heym.exceptCIDRs" . | nindent 10 }}
 {{- end }}
-{{- if and .Values.sandbox.enabled .Values.networkPolicy.apiServerCIDRs }}
-# The API server, to start sandbox pods. Its endpoints are node or
+{{- if and (include "heym.needsApiServer" .) .Values.networkPolicy.apiServerCIDRs }}
+# The API server, to start sandbox pods and watch credential Secrets. Its endpoints are node or
 # control-plane addresses, usually inside the private ranges above.
 - to:
     {{- range .Values.networkPolicy.apiServerCIDRs }}
@@ -155,6 +186,12 @@ cluster.env on top, and get their instance ID from the pod name. */}}
 {{- $defaults = append $defaults (dict "name" "HEYM_SANDBOX_K8S_POD_OVERRIDES" "value" (toJson $root.Values.sandbox.podOverrides)) -}}
 {{- end -}}
 {{- end -}}
+{{- if $root.Values.kubernetesCredentials.enabled -}}
+{{- $defaults = append $defaults (dict "name" "HEYM_K8S_CREDENTIALS" "value" "true") -}}
+{{- with $root.Values.kubernetesCredentials.namespace -}}
+{{- $defaults = append $defaults (dict "name" "HEYM_K8S_CREDENTIALS_NAMESPACE" "value" .) -}}
+{{- end -}}
+{{- end -}}
 {{- if $root.Values.cluster.enabled -}}
 {{- $defaults = append $defaults (dict "name" "HEYM_CLUSTER_ENABLED" "value" "true") -}}
 {{- $defaults = append $defaults (dict "name" "HEYM_INSTANCE_ROLE" "value" .role) -}}
@@ -194,7 +231,7 @@ falls back to "worker" and they collapse into one. */}}
     secretKeyRef:
       name: {{ $ref.name | quote }}
       key: {{ $ref.key | quote }}
-      optional: false
+      optional: {{ eq (toString $ref.optional) "true" }}
 {{- end }}
 {{- end -}}
 
