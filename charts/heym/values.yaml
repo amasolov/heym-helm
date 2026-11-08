@@ -53,10 +53,14 @@ secrets:
   # Additional pre-created Secrets, loaded in order after chart-owned values.
   # Together they may supply keys and/or the external database connection.
   existingSecrets: []
-  # Optional required per-key references, with custom source key names. These
-  # override envFrom and generated defaults; a missing key blocks pod startup.
+  # Optional per-key references, with custom source key names. These override
+  # envFrom and generated defaults; a missing key blocks pod startup unless the
+  # ref sets optional: true.
   # keyRefs:
   #   ENCRYPTION_KEY: {name: important-heym-key, key: encryption-key}
+  #   # Only while rotating ENCRYPTION_KEY (Heym 0.0.149+): keys that decrypt
+  #   # but never encrypt. See the README, "Rotating ENCRYPTION_KEY".
+  #   ENCRYPTION_KEYS_EXTRA: {name: heym-old-key, key: encryption-key, optional: true}
   keyRefs: {}
   # If existingSecret is empty and application keys are not fully supplied
   # inline or through keyRefs, create
@@ -103,9 +107,9 @@ workers: 2
 cluster:
   enabled: false
   # Worker pods, from a StatefulSet: each takes its pod name as its stable
-  # HEYM_INSTANCE_ID. To scale down cleanly, set the highest-numbered workers'
-  # weight to 0 a minute before lowering this; runs already queued for a
-  # removed worker are skipped once the misfire grace window passes.
+  # HEYM_INSTANCE_ID. Lowering this is safe from Heym 0.0.145: the leader
+  # moves runs still queued for a removed worker to another instance, about
+  # a minute after the worker stops.
   replicas: 2
   # Uvicorn processes per worker.
   processes: 2
@@ -234,6 +238,22 @@ sandbox:
     # Explicit allow-all escape hatch. Empty keeps DNS plus restricted public
     # egress on every platform, including OpenShift (DNS pod port 5353).
     allowAllEgress: null
+
+# Credentials from Kubernetes Secrets (HEYM_K8S_CREDENTIALS, Heym 0.0.149+).
+# A Secret labelled heym.run/credential: "true" becomes a read-only credential:
+# annotations give its name, type, owner and sharing, its data is the config.
+# Values stay in each process's memory, never in the database or its backups,
+# and editing the Secret rotates the credential without a restart.
+#
+# The chart adds a Role with get, list and watch on Secrets in the watched
+# namespace, for the backend and every worker (each process watches for
+# itself). Secrets RBAC can't be narrowed by label, so Heym can read every
+# Secret there: keep other applications' Secrets out of it, or point
+# namespace at one that holds only Heym credentials.
+kubernetesCredentials:
+  enabled: false
+  # Namespace to watch. Empty watches the release namespace.
+  namespace: ""
 
 # A NetworkPolicy for the backend itself. Off by default because what Heym
 # must reach (database, LLM gateway, identity provider) is site-specific; add

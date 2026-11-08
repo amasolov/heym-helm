@@ -2,6 +2,7 @@
 {{- include "heym.validateSecrets" . -}}
 {{- include "heym.validateConfiguration" . -}}
 {{- include "heym.validateCluster" . -}}
+{{- include "heym.validateKubernetesCredentials" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,8 +33,9 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "heym.serviceAccountName" . }}
-      # The token starts sandbox pods (role.yaml). Sandbox pods get none.
-      automountServiceAccountToken: {{ .Values.sandbox.enabled }}
+      # The token starts sandbox pods (role.yaml) and watches credential
+      # Secrets (credentials-role.yaml). Sandbox pods get none.
+      automountServiceAccountToken: {{ include "heym.needsApiServer" . | eq "true" }}
       # Service links would inject POSTGRES_PORT=tcp://... for any Service
       # named postgres in the namespace, colliding with Heym's own setting.
       enableServiceLinks: false

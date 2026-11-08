@@ -102,6 +102,10 @@
                 "key": {
                   "type": "string",
                   "minLength": 1
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "Start even when the Secret or key is missing. Default false."
                 }
               },
               "additionalProperties": false
@@ -120,6 +124,10 @@
                 "key": {
                   "type": "string",
                   "minLength": 1
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "Start even when the Secret or key is missing. Default false."
                 }
               },
               "additionalProperties": false
@@ -138,9 +146,36 @@
                 "key": {
                   "type": "string",
                   "minLength": 1
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "Start even when the Secret or key is missing. Default false."
                 }
               },
               "additionalProperties": false
+            },
+            "ENCRYPTION_KEYS_EXTRA": {
+              "type": "object",
+              "required": [
+                "name",
+                "key"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "Start even when the Secret or key is missing. Default false."
+                }
+              },
+              "additionalProperties": false,
+              "description": "Heym 0.0.149+: keys that decrypt but never encrypt, only while rotating ENCRYPTION_KEY. Usually optional: true."
             }
           },
           "additionalProperties": false
@@ -239,6 +274,20 @@
               ]
             }
           }
+        }
+      }
+    },
+    "kubernetesCredentials": {
+      "type": "object",
+      "description": "Read-only credentials from Secrets labelled heym.run/credential: \"true\" (HEYM_K8S_CREDENTIALS, Heym 0.0.149+).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Namespace to watch; empty is the release namespace."
         }
       }
     },

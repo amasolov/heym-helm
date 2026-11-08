@@ -5,9 +5,9 @@ description: >-
   (Python tools, skills, Code node, MCP stdio, Playwright, Codex, OpenCode) as
   its own restricted pod, with no Docker socket.
 type: application
-version: 0.4.0
+version: 0.5.0
 # Heym's release tag. The image is ghcr.io/heymrun/heym:<appVersion>.
-appVersion: "0.0.145"
+appVersion: "0.0.149"
 # The Kubernetes sandbox backend needs 1.30+ (heymrun/heym#848).
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/amasolov/heym-helm
@@ -39,15 +39,11 @@ annotations:
     - name: heym
       image: ghcr.io/heymrun/heym:latest
   artifacthub.io/changes: |
-    - kind: removed
-      description: HEYM_PYTHON_TOOL_RUNNER_PATH default; Heym 0.0.145 ships the runner with each tool call and ignores it (set it under env when pinning 0.0.144)
+    - kind: added
+      description: Credentials from Kubernetes Secrets (kubernetesCredentials.enabled), with a Secrets Role for the backend and workers (Heym 0.0.149)
+    - kind: added
+      description: Workers run Heym's ENCRYPTION_KEY check before starting, as the image entrypoint does on main (Heym 0.0.149)
+    - kind: added
+      description: Optional per-key references, for ENCRYPTION_KEYS_EXTRA during an ENCRYPTION_KEY rotation
     - kind: changed
-      description: Follow upstream latest by default with automatic pull policy and optional exact image pins
-    - kind: fixed
-      description: Explicit worker claim type metadata prevents Argo CD sync drift
-    - kind: added
-      description: Worker-specific startup and mounts for corporate trust and compatibility patches
-    - kind: added
-      description: Load-distribution workers (cluster.enabled), a StatefulSet with a stable instance ID and its own workspace claim per worker
-    - kind: added
-      description: Worker NetworkPolicy and Cilium API-server rule; Kind lifecycle test covers two workers and scale-down
+      description: appVersion 0.0.149; scaling workers down no longer needs a weight-0 drain (Heym 0.0.145 retargets queued runs)

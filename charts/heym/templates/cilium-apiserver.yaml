@@ -1,5 +1,6 @@
-{{- if and .Values.sandbox.enabled (include "heym.ciliumApiServerPolicy" .) }}
-# The backend to the API server, to start sandbox pods. With kube-proxy
+{{- if and (include "heym.needsApiServer" .) (include "heym.ciliumApiServerPolicy" .) }}
+# The backend to the API server, to start sandbox pods and watch credential
+# Secrets. With kube-proxy
 # replacement Cilium rewrites the kubernetes Service to a node's :6443 before
 # policy is evaluated, and gives it the reserved kube-apiserver identity, which
 # an ipBlock rule does not match. Cilium ORs this with the backend's
